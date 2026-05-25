@@ -145,7 +145,6 @@ class SongInfoDB:
         if not self.changed:
             log("No changes to save for SongInfoDB")
             return False
-            return
         filename = path / f"{self.name}.pkl"
         data: Dict[str, Any] = {
             'name': self.name,

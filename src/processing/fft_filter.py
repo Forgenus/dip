@@ -8,26 +8,22 @@ if str(root_dir) not in sys.path:
     sys.path.insert(0, str(root_dir))
 import config as cfg
 
-def stft(audio:Any, n_fft:int=1024, hop_length:int=cfg.HOP_LENGTH, window:str=cfg.WINDOW, normalize:bool = True) -> np.ndarray:
+def stft(audio:Any, n_fft:int=cfg.N_FFT, hop_length:int=cfg.HOP_LENGTH, window:str=cfg.WINDOW, normalize:bool = True) -> np.ndarray:
     X = librosa.stft(audio, n_fft=n_fft, hop_length=hop_length, window=window)
     X = np.abs(X)
-    #X = librosa.amplitude_to_db(X, ref=np.max)
     X = np.log1p(X)
     X -= np.min(X)
     X /= np.max(X)
-
     return X
 
 #spectrogram data: [time x freq] -> list of TimeFreqPoint: time x freq
 def filter_spectrogram(
     data: np.ndarray,
-    threshold_coef: float = 0.7
 ) -> np.ndarray:
     """
     data: shape (n_times, 512)
     return: array of (time_idx, freq_idx)
     """
-
     band_edges = [
         (0, 15),
         (15,30),
@@ -42,7 +38,6 @@ def filter_spectrogram(
 
     # [time, band] -> (freq_idx, amplitude)
     strongest = np.zeros((n_times, n_bands, 2))
-    data = librosa.amplitude_to_db(data, ref=np.max)
 
     # --- step 1–2: strongest bin per band per time frame ---
     for t in range(n_times):

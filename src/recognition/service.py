@@ -24,18 +24,17 @@ import config as cfg
 invalidval = 2**32-2
 log = print
 
-def compute_payload(file_path:Path,song_id:int, metadata: dict) -> dict[str, Any]:
-        audio, metadata = pp.load_audio_with_metadata(file_path, metadata)
-        spectrogram = ff.stft(audio)
-        # Создание отпечатков 
-        points = ff.filter_spectrogram(np.abs(spectrogram).T)
-        fingerprints = fp.create_fingerprints(points, song_id)
-        return {
+def compute_payload(file_path: Path, song_id: int) -> dict[str, Any]:
+    audio = pp.load_audio(file_path)
+    spectrogram = ff.stft(audio)
+    points = ff.filter_spectrogram(np.abs(spectrogram).T)
+    fingerprints = fp.create_fingerprints(points, song_id)
+
+    return {
         "file_path": file_path,
-        "metadata": metadata,
         "fingerprints": fingerprints,
         "song_id": song_id,
-        }
+    }
 class MusicRecognitionService:
     """
     Сервис распознавания музыки.
@@ -78,7 +77,8 @@ class MusicRecognitionService:
             song_id = self.db.reserve_song_id()
             tasks.append((Path(p), song_id))
 
-        max_workers = int(os.cpu_count()*0.7) or 4
+        cpu_count = os.cpu_count() or 1
+        max_workers = max(1, int(cpu_count * 0.7))
         added = 0
         futures=[]
         with ProcessPoolExecutor(max_workers=max_workers) as ex:
@@ -87,7 +87,7 @@ class MusicRecognitionService:
                     log(f"File already processed, skipping...")
                     continue
                 log(f"Submitting {file_path}")
-                futures.append(ex.submit(compute_payload,file_path,song_id,self.metadata))
+                futures.append(ex.submit(compute_payload,file_path,song_id))
 
             for fut in as_completed(futures):
                 try:
@@ -96,7 +96,7 @@ class MusicRecognitionService:
                     log(f"Worker error: {e}")
                     continue
 
-                metadata = payload["metadata"] or {}
+                metadata = pp.extract_metadata(file_path, self.metadata)
                 fingerprints = payload["fingerprints"]
                 file_path = Path(payload["file_path"])
                 song_id = payload["song_id"]
@@ -114,10 +114,11 @@ class MusicRecognitionService:
                         save_after=False
                     )
                     log(f"Added {file_path}")
+                    added += 1
                 except TypeError as e :
                     log(f"ERROR DURING ADDING FILE={e},song_id={song_id},title={metadata.get('title')},file={file_path},dur={metadata.get('duration')}")
 
-                added += 1
+                
 
         # сохраняем один раз после завершения обработки
         self.db.save_all()
@@ -128,9 +129,39 @@ class MusicRecognitionService:
 
 
 
-    def add_song_from_file(self, file_path: Path, title: str = '', artist: str = '',
-                            genre: str = '', year: str = '', album: str = '', save_after: bool = True) -> bool:
-        return False
+    def add_song_from_file(self, file_path: Path, save_after: bool = True) -> bool:
+        file_path = Path(file_path)
+
+        if self.is_path_exists(file_path):
+            log(f"File already processed, skipping: {file_path}")
+            return False
+
+        song_id = self.db.reserve_song_id()
+
+        audio = pp.load_audio(file_path)
+        metadata = pp.extract_metadata(file_path, self.metadata)
+
+        spectrogram = ff.stft(audio)
+        points = ff.filter_spectrogram(np.abs(spectrogram).T)
+        fingerprints = fp.create_fingerprints(points, song_id)
+
+        self.db.add_song(
+            song_id=song_id,
+            title=metadata.get("title", file_path.stem),
+            artist=metadata.get("artist", ""),
+            genre=metadata.get("genre", ""),
+            year=metadata.get("year", ""),
+            album=metadata.get("album", ""),
+            file_path=file_path,
+            fingerprints=fingerprints,
+            duration=metadata.get("duration", 0.0),
+            save_after=False,
+        )
+
+        if save_after:
+            self.db.save_all()
+
+        return True
         
     def clear_all(self):
         self.db.clear_all()
@@ -152,12 +183,14 @@ class MusicRecognitionService:
         addresses:List[int] = []
         for address, _ in fingerprints_record:
             addresses.append(address)
-        record_targetzones = len(fingerprints_record) -5
+        record_targetzones = len(fingerprints_record)
         found_fp_list = self.db.fingerprints.lookup_flat_batch(addresses)
        #print(f"Found {len(found_fp_list)} matching fingerprints in DB for query")
         #print(f"Record has {len(fingerprints_record)} fingerprints, target zones: {record_targetzones}")
-        id_fps, _debug_cut_correct = mf.filter(found_fp_list, record_targetzones,_debug_correct_id)
-        #print(f"id_fps len = {len(id_fps)}")
+        id_fps = mf.filter(
+                found_fp_list,
+                min_matches_per_song=max(5, int(len(fingerprints_record) * 0.01)),
+                )
         results = mf.analyze_time_coherency(fingerprints_record, id_fps)
         if not results:
             return (-1,-1)
@@ -196,7 +229,8 @@ class MusicRecognitionService:
         """
        #  Обработка аудио 
         audio = pp.load_audio(file_path)
-        return self.search_song(audio)
+        song_id, offset = self.search_song(audio)
+        return song_id
         
        
     def get_random_song(self, rng = np.random.default_rng()):

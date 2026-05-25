@@ -1,17 +1,11 @@
 from random import random
-import subprocess
 import librosa
 import numpy as np
 import sys
 import soundfile as sf
-from mutagen.easyid3 import EasyID3
-from mutagen.mp3 import MP3
-from mutagen.flac import FLAC
-from mutagen.oggvorbis import OggVorbis
-from typing import Dict, Tuple, Any
+from typing import Dict, Tuple
 from pathlib import Path
-import json
-import random
+
 root_dir = Path(__file__).parent.parent.parent
 if str(root_dir) not in sys.path:
     sys.path.insert(0, str(root_dir))

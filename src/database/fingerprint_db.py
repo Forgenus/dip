@@ -5,6 +5,7 @@ import os
 import sys
 from collections import defaultdict
 from typing import Any, Dict, List, Tuple, Iterable
+from src.processing.fingerprint import decode_address
 root_dir = Path(__file__).parent.parent.parent
 if str(root_dir) not in sys.path:
     sys.path.insert(0, str(root_dir))
@@ -51,6 +52,7 @@ class FingerprintDB:
         for hash_value in hash_values:
             _, song_id = self.decode_hash(hash_value)
             self.entry_count[song_id] = self.entry_count.get(song_id, 0) + 1
+            
         self.db[address].extend(hash_values)
         self._update_stats_on_insert(address, len(hash_values))
         self.changed = True
@@ -182,7 +184,7 @@ class FingerprintDB:
         log(f"Max list size for one address: {self.stats['max_list_size']}")
         for (address,hashes) in self.db.items():
             if len(hashes) > 1000:
-                freq1,freq2, freq_target, delta1, delta2 =self.decode_address(address)
+                freq1,freq2, freq_target, delta1, delta2 = decode_address(address)
                 print(f"freq1={freq1}freq2={freq2}target={freq_target}delta1={delta1}delta2={delta2}")
         if self.stats['unique_addresses'] > 0:
             avg = self.stats['total_entries'] / self.stats['unique_addresses']
@@ -195,7 +197,6 @@ class FingerprintDB:
         if(not self.changed):
             log("No changes to save for FingerprintDB")
             return False
-            return
         filename = os.path.join(path, f"{self.name}.pkl")
         
         data: Dict[str, Any] = {
@@ -249,26 +250,3 @@ class FingerprintDB:
         
         return anchor_time, song_id         
     
-    @staticmethod               
-    def decode_address(address:int, validate:bool=cfg.VALIDATE) -> Tuple[int, int, int, int, int]:
-        """Декодирует 64-битный address обратно в компоненты"""
-        freq1 = (address >> 55) & 0x1FF
-        freq2 = (address >> 46) & 0x1FF
-        freq_target = (address >> 37) & 0x1FF
-        delta1 = (address >> 23) & 0x3FFF
-        delta2 = (address >> 9) & 0x3FFF
-        
-        if validate:
-            assert freq1 < 512, f"freq1={freq1} >= 512"
-            assert freq2 < 512, f"freq2={freq2} >= 512"
-            assert freq_target < 512, f"freq_target={freq_target} >= 512"
-            assert delta1 < 16384, f"delta1={delta1} >= 16384"
-            assert delta2 < 16384, f"delta2={delta2} >= 16384"
-        
-        return (
-            freq1,
-            freq2,
-            freq_target,
-            delta1,
-            delta2
-        )
