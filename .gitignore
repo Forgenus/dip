@@ -1,3 +1,26 @@
-mlenv
-data
+# Python
 __pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Environments
+.env
+.venv/
+venv/
+mlenv/
+
+# Data / generated files
+data/
+*.log
+conversion.log
+
+# Models
+*.pth
+*.pt
+*.onnx
+*.ckpt
+
+# IDE
+.vscode/

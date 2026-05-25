@@ -24,8 +24,8 @@ import config as cfg
 invalidval = 2**32-2
 log = print
 
-def compute_payload(file_path:Path,song_id:int) -> dict[str, Any]:
-        audio, metadata = pp.load_audio_with_metadata(file_path)
+def compute_payload(file_path:Path,song_id:int, metadata: dict) -> dict[str, Any]:
+        audio, metadata = pp.load_audio_with_metadata(file_path, metadata)
         spectrogram = ff.stft(audio)
         # Создание отпечатков 
         points = ff.filter_spectrogram(np.abs(spectrogram).T)
@@ -46,19 +46,22 @@ class MusicRecognitionService:
         # Инициализируем все компоненты
         print(profile)
         self.db = DB.MusicDatabase(db_path, fp_db_name, songs_db_name)
-        metadata_path = cfg.SONGS_DIR / "metadata.json"
-        existing_metadata = {}
-        if metadata_path.exists():
-            with open(metadata_path, 'r', encoding='utf-8') as f:
-                existing_metadata = json.load(f)
+        self.metadata = self._load_metadata()
 
-        # Пытаемся загрузить существующие базы
         try:
             self.db.load_all()
         except FileNotFoundError:
             log("No existing database found, starting fresh")
 
+    def _load_metadata(self) -> dict:
+        if not cfg.METADATA_JSON_PATH.exists():
+            return {}
 
+        try:
+            with open(cfg.METADATA_JSON_PATH, "r", encoding="utf-8") as file:
+                return json.load(file)
+        except json.JSONDecodeError:
+            return {}
     @staticmethod
     def get_audio_files(folder_path: Path):
          audio_exts = {'.mp3', '.wav', '.flac', '.m4a', '.aac'}
@@ -84,7 +87,7 @@ class MusicRecognitionService:
                     log(f"File already processed, skipping...")
                     continue
                 log(f"Submitting {file_path}")
-                futures.append(ex.submit(compute_payload,file_path,song_id))
+                futures.append(ex.submit(compute_payload,file_path,song_id,self.metadata))
 
             for fut in as_completed(futures):
                 try:

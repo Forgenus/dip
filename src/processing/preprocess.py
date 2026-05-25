@@ -18,60 +18,49 @@ if str(root_dir) not in sys.path:
 import config as cfg
 
 log = print
-def load_audio(file_path:Path, target_sr:int=11025):
+
+def metadata_key_for_song(file_path: Path) -> str:
+    """
+    Возвращает путь файла относительно cfg.SONGS_DIR
+    в формате, пригодном для metadata.json.
+
+    Пример:
+    D:/dip/data/processed/Queen/song.wav
+    ->
+    Queen/song.wav
+    """
+    return file_path.resolve().relative_to(cfg.SONGS_DIR.resolve()).as_posix()
+
+def load_audio(file_path:Path, target_sr:int=cfg.SAMPLE_RATE):
     """
     Загружает аудио файл и преобразует его в моно с заданной частотой дискретизации
     """
     audio = librosa.load(file_path, sr=target_sr, mono=True)[0]
     return audio
 
+DEFAULT_METADATA = {
+    "title": None,
+    "artist": "Unknown Artist",
+    "album": "Unknown Album",
+    "year": None,
+    "duration": None,
+}
 
-def extract_metadata(file_path: Path) -> Dict[str, Any]:
-    """
-    Извлекает метаданные для файла из JSON-базы.
-    Если информации нет — возвращает пустые значения.
-
-    Args:
-        file_path: путь к аудиофайлу
-
-    Returns:
-        Dict с метаданными (title, artist, album, year, genre, duration)
-    """
-    metadata: Dict[str, Any] = {
-        'title': '',
-        'artist': '',
-        'album': '',
-        'year': '',
-        'genre': '',
-        'duration': 0.0
+def extract_metadata(file_path: Path, metadata: dict) -> dict:
+    default_metadata = {
+        **DEFAULT_METADATA,
+        "title": file_path.stem,
     }
 
-    json_path = Path(cfg.METADATA_JSON_PATH)  
-    if not json_path.exists():
-        return metadata
-
     try:
-        with open(json_path, 'r', encoding='utf-8') as f:
-            all_metadata = json.load(f)  # ожидаем, что JSON — словарь {filename_or_path: {tags...}}
+        key = file_path.resolve().relative_to(cfg.SONGS_DIR.resolve()).as_posix()
+    except ValueError:
+        return default_metadata
 
-        # Используем file_path.stem или полный путь в качестве ключа
-        key = str(file_path.resolve().relative_to(cfg.SONGS_DIR))  # абсолютный путь
-        if key not in all_metadata:
-            key = file_path.name  # fallback на имя файла
-
-        if key in all_metadata:
-            file_tags = all_metadata[key]
-            for k in metadata.keys():
-                if k in file_tags:
-                    metadata[k] = file_tags[k]
-
-    except Exception as e:
-        print(f"Exception while extracting metadata for {file_path}: {e}")
-
-    return metadata
+    return metadata.get(key, default_metadata)
 
 
-def load_audio_with_metadata(file_path: Path, target_sr:int=11025) -> Tuple[np.ndarray, Dict[str, str]]:
+def load_audio_with_metadata(file_path: Path,  metadata: dict, target_sr:int=cfg.SAMPLE_RATE) -> Tuple[np.ndarray, Dict[str, str]]:
     """
     Загружает аудио и извлекает метаданные одной функцией
     
@@ -79,7 +68,7 @@ def load_audio_with_metadata(file_path: Path, target_sr:int=11025) -> Tuple[np.n
         Tuple[audio, metadata]
     """
     audio = load_audio(file_path, target_sr)
-    metadata = extract_metadata(file_path)
+    metadata = extract_metadata(file_path, metadata)
     # Если title не найден, используем имя файла
     if not metadata['title']:
         import os

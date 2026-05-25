@@ -17,9 +17,9 @@ def get_path(env_var: str, default: str) -> Path:
         return BASE_DIR / path_str
     return Path(path_str)
 
-METADATA_JSON_PATH = get_path('METADATA_JSON_PATH','D:/Music/Converted/metadata.json')
-UNPROCESSED_DIR = get_path('UNPROCESSED_DIR','D:/Music/Original')
-SONGS_DIR = get_path('SONGS_DIR', 'D:/Music/Converted')
+METADATA_JSON_PATH = get_path('METADATA_JSON_PATH','data/processed/metadata.json')
+UNPROCESSED_DIR = get_path('UNPROCESSED_DIR','data/raw')
+SONGS_DIR = get_path('SONGS_DIR', 'data/processed')
 VALIDATE = os.getenv('VALIDATE', 'True').lower() in ('true', '1', 'yes')
 DATABASE_DIR = get_path('DATABASE_DIR', 'data/databases')
 FINGERPRINT_DB_NAME = get_path('FINGERPRINT_DB_NAME', 'fingerprints')
