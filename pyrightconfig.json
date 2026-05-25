@@ -1,0 +1,6 @@
+{
+    "include": ["**/*.py"],
+    "extraPaths": [".","src/recognition","src/processing","src/service","src/database","src/testing"],
+    "pythonVersion": "3.11",
+    "typeCheckingMode": "basic"
+}

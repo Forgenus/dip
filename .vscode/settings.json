@@ -1,0 +1,16 @@
+{
+    "python.analysis.typeCheckingMode": "standard",
+    "python.analysis.languageServerMode": "full", 
+       "python.analysis.exclude": [
+        "**/node_modules", 
+        "**/__pycache__", 
+        "**/.*"
+    ],
+    "python.analysis.ignore": [
+        "**/neural.py",
+        "**/prepare_audio.py",
+        "**/split.py",
+        "**/preprocess.py"
+    ]
+
+}
