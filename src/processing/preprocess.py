@@ -1,14 +1,8 @@
-from random import random
 import librosa
 import numpy as np
-import sys
-import soundfile as sf
 from typing import Dict, Tuple
 from pathlib import Path
 
-root_dir = Path(__file__).parent.parent.parent
-if str(root_dir) not in sys.path:
-    sys.path.insert(0, str(root_dir))
 import config as cfg
 
 log = print

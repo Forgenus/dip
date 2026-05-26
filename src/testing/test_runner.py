@@ -3,6 +3,8 @@ import librosa
 import soundfile as sf
 from pathlib import Path
 from src.recognition.service import MusicRecognitionService
+from src.testing.reporting import format_search_trace
+from src.testing.snippets import _get_snippet_from_file
 import config as cfg
 import numpy as np
 import time
@@ -81,33 +83,12 @@ class TestRunner:
             if match:
                 correct += 1
             else:
-                    print(f"{'Y' if match else 'N'} expected={expected} {song['song_id']} | found={result} {found_id} ")
+                print(f"{'Y' if match else 'N'} expected={expected} {song['song_id']} | found={result} {found_id} ")
 
-                    trace = self.service.last_search_trace
+                trace = self.service.last_search_trace
 
-                    if trace is not None:
-                        shown_candidates = dict(list(trace.candidates_after_time.items())[:10])
-                        print(f"  dropped_stage={trace.dropped_stage}")
-                        print(f"  reason={trace.reason}")
-                        print(f"  query_fp_count={trace.query_fp_count}")
-                        print(f"  db_match_count={trace.db_match_count}")
-                        print(f"  correct_in_db_lookup={trace.correct_in_db_lookup}")
-                        print(f"  correct_after_filter={trace.correct_after_filter}")
-                        print(f"  correct_after_time={trace.correct_after_time}")
-                        print(f"  correct_time_result={trace.correct_time_result}")
-                        print(f"  selected_id={trace.selected_id}")
-                        print(f"selected_score={trace.selected_score:.4f}")
-                        print(f"expected_score={trace.expected_score:.4f}")
-
-                        print(f"selected_max_count={trace.selected_max_count}")
-                        print(f"expected_max_count={trace.expected_max_count}")
-
-                        print(f"selected_offset={trace.candidates_after_time.get(trace.selected_id)}")
-                        print(f"expected_offset={trace.correct_time_result}")
-                        print(f"  candidates_after_filter={trace.candidates_after_filter[:10]}")
-                        print(f"candidates_after_time_first_10={shown_candidates}")
-                        print(f"expected_time_result={trace.candidates_after_time.get(trace.expected_id)}")
-                        print(f"selected_time_result={trace.candidates_after_time.get(trace.selected_id)}")
+                if trace is not None:
+                    print(format_search_trace(trace))
 
         avg_time = total_time / count if count > 0 else 0.0
 

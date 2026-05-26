@@ -2,13 +2,9 @@
 from pathlib import Path
 import pickle
 import os
-import sys
 from collections import defaultdict
 from typing import Any, Dict, List, Tuple, Iterable
 from src.processing.fingerprint import decode_address
-root_dir = Path(__file__).parent.parent.parent
-if str(root_dir) not in sys.path:
-    sys.path.insert(0, str(root_dir))
 import config as cfg
 log = print
 class FingerprintDB:

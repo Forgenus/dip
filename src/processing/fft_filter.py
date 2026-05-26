@@ -1,11 +1,8 @@
 import librosa
 import numpy as np
-from typing import  Any
+from typing import Any
 from pathlib import Path
-import sys
-root_dir = Path(__file__).parent.parent.parent
-if str(root_dir) not in sys.path:
-    sys.path.insert(0, str(root_dir))
+
 import config as cfg
 
 def stft(audio:Any, n_fft:int=cfg.N_FFT, hop_length:int=cfg.HOP_LENGTH, window:str=cfg.WINDOW, normalize:bool = True) -> np.ndarray:

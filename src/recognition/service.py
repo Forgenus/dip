@@ -2,65 +2,27 @@
 Сервисный слой
 """
 
-from dataclasses import dataclass, field
-from inspect import trace
 from pathlib import Path
-import sys
-from typing import List, Any, Tuple, Dict
+from typing import Any, List, Tuple
+from concurrent.futures import ProcessPoolExecutor, as_completed
+import os
+import json
+import numpy as np
+
 from ..database import music_database as DB
 from ..processing import fft_filter as ff
 from ..processing import preprocess as pp
 from ..processing import fingerprint as fp
 from . import match_filter as mf
-import os
-import numpy as np
-import soundfile as sf
-import json
-from concurrent.futures import ProcessPoolExecutor, as_completed
-root_dir = Path(__file__).parent.parent.parent
-if str(root_dir) not in sys.path:
-    sys.path.insert(0, str(root_dir))
+from .indexing import compute_payload
+from .search_trace import SearchTrace
+from .scoring import compute_candidate_score, select_best_match
 import config as cfg
-invalidval = 2**32-2
-@dataclass
-class SearchTrace:
-    expected_id: int = -1
-    query_fp_count: int = 0
 
-    db_match_count: int = 0
-    correct_in_db_lookup: bool = False
+invalidval = 2**32 - 2
 
-    candidates_after_filter: list[int] = field(default_factory=list)
-    correct_after_filter: bool = False
-
-    candidates_after_time: dict[int, tuple[int, int]] = field(default_factory=dict)
-    correct_after_time: bool = False
-    correct_time_result: tuple[int, int] | None = None
-
-    selected_id: int = -1
-    selected_score: float = 0.0 
-    expected_score: float = 0.0
-    expected_time_offset: int = 0
-
-    selected_max_count: int = 0
-    expected_max_count: int = 0
-
-    dropped_stage: str = "unknown"
-    reason: str = ""
-    
 log = print
 
-def compute_payload(file_path: Path, song_id: int) -> dict[str, Any]:
-    audio = pp.load_audio(file_path)
-    spectrogram = ff.stft(audio)
-    points = ff.filter_spectrogram(np.abs(spectrogram).T)
-    fingerprints = fp.create_fingerprints(points, song_id)
-
-    return {
-        "file_path": file_path,
-        "fingerprints": fingerprints,
-        "song_id": song_id,
-    }
 class MusicRecognitionService:
     """
     Сервис распознавания музыки.
@@ -121,10 +83,11 @@ class MusicRecognitionService:
                     log(f"Worker error: {e}")
                     continue
 
+                file_path = payload.file_path
+                song_id = payload.song_id
                 metadata = pp.extract_metadata(file_path, self.metadata)
-                fingerprints = payload["fingerprints"]
-                file_path = Path(payload["file_path"])
-                song_id = payload["song_id"]
+                fingerprints = payload.fingerprints
+
                 try:
                     self.db.add_song(
                         song_id=song_id,
@@ -140,7 +103,7 @@ class MusicRecognitionService:
                     )
                     log(f"Added {file_path}")
                     added += 1
-                except TypeError as e :
+                except TypeError as e:
                     log(f"ERROR DURING ADDING FILE={e},song_id={song_id},title={metadata.get('title')},file={file_path},dur={metadata.get('duration')}")
 
                 
@@ -163,12 +126,8 @@ class MusicRecognitionService:
 
         song_id = self.db.reserve_song_id()
 
-        audio = pp.load_audio(file_path)
+        payload = compute_payload(file_path, song_id)
         metadata = pp.extract_metadata(file_path, self.metadata)
-
-        spectrogram = ff.stft(audio)
-        points = ff.filter_spectrogram(np.abs(spectrogram).T)
-        fingerprints = fp.create_fingerprints(points, song_id)
 
         self.db.add_song(
             song_id=song_id,
@@ -178,7 +137,7 @@ class MusicRecognitionService:
             year=metadata.get("year", ""),
             album=metadata.get("album", ""),
             file_path=file_path,
-            fingerprints=fingerprints,
+            fingerprints=payload.fingerprints,
             duration=metadata.get("duration", 0.0),
             save_after=False,
         )
@@ -194,9 +153,10 @@ class MusicRecognitionService:
     def debug_search(self):
         files = self.get_audio_files(cfg.SONGS_DIR)
         for file_path in files:  # итерация по объектам Path
-            
-            song_id = self.search_song_from_file(str(file_path))
-            print(f"{file_path.stem}|{self.get_song_by_id(song_id)['title']}")
+            song_id = self.search_song_from_file(file_path)
+            song = self.get_song_by_id(song_id)
+            title = song["title"] if song else "Unknown"
+            print(f"{file_path.stem}|{title}")
 
         self.db.save_all()
         
@@ -282,15 +242,13 @@ class MusicRecognitionService:
         )
         if _debug_correct_id in results:
             expected_max_count, expected_offset = results[_debug_correct_id]
-
             trace.expected_max_count = expected_max_count
             trace.expected_time_offset = expected_offset
-
-            trace.expected_score = self._compute_candidate_score(
+            trace.expected_score = compute_candidate_score(
                 expected_max_count,
                 query_fp_count,
             )
-            
+
         trace.candidates_after_time = results.copy()
         trace.correct_after_time = _debug_correct_id in results
         trace.correct_time_result = results.get(_debug_correct_id)
@@ -305,20 +263,25 @@ class MusicRecognitionService:
             trace.reason = "correct song was removed by analyze_time_coherency"
             return -1, -1.0
 
-        match_id, time_offset, score = self._select_best_match(
+        selection = select_best_match(
             results=results,
             query_fp_count=query_fp_count,
         )
 
+        match_id = selection.song_id
+        time_offset = selection.time_offset
+        score = selection.score
+
         trace.selected_id = match_id
         trace.selected_score = score
+        trace.reason = selection.reason
         
         if match_id in results:
             trace.selected_max_count = results[match_id][0]
             
         if match_id == -1:
             trace.dropped_stage = "selection"
-            trace.reason = "no candidate passed final selection thresholds"
+            trace.reason = selection.reason or "no candidate passed final selection thresholds"
             return -1, -1.0
 
         if _debug_correct_id != -1 and match_id != _debug_correct_id:
@@ -388,71 +351,3 @@ class MusicRecognitionService:
             if song_id == expected_id:
                 return True
         return False
-    
-    def _select_best_match(
-        self,
-        results: dict[int, tuple[int, int]],
-        query_fp_count: int,
-        min_offset_peak: int = 0,
-        min_score: float = 0.0,
-        min_margin: float = 0.00,
-    ) -> tuple[int, int, float]:
-        """
-        Выбирает лучший результат после analyze_time_coherency.
-
-        Args:
-            results:
-                Словарь {song_id: (max_count, time_offset)}.
-                max_count — максимальное количество совпадений при одном временном сдвиге.
-                time_offset — сдвиг в бинах.
-            query_fp_count:
-                Количество fingerprints в запросе.
-            min_offset_peak:
-                Минимальное количество совпадений в лучшем offset-пике.
-            min_score:
-                Минимальная доля совпавших fingerprints запроса.
-            min_margin:
-                Минимальный разрыв между score лучшего и второго кандидата.
-
-        Returns:
-            (song_id, time_offset, score) или (-1, 0, 0.0), если совпадение не принято.
-        """
-        if not results or query_fp_count <= 0:
-            return -1, 0, 0.0
-
-        candidates: list[tuple[float, int, int, int]] = []
-
-        for song_id, (max_count, time_offset) in results.items():
-            if max_count < min_offset_peak:
-                continue
-
-            score = max_count / query_fp_count
-
-            if score < min_score:
-                continue
-
-            candidates.append((score, song_id, max_count, time_offset))
-
-        if not candidates:
-            return -1, 0, 0.0
-
-        candidates.sort(reverse=True)
-
-        best_score, best_song_id, _, best_time_offset = candidates[0]
-
-        if len(candidates) > 1:
-            second_score = candidates[1][0]
-
-            if best_score - second_score < min_margin:
-                return -1, 0, 0.0
-
-        return best_song_id, best_time_offset, best_score
-    def _compute_candidate_score(
-    self,
-    max_count: int,
-    query_fp_count: int,
-    ) -> float:
-        if query_fp_count <= 0:
-            return 0.0
-
-        return max_count / query_fp_count
