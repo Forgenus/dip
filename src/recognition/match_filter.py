@@ -1,24 +1,27 @@
 from collections import defaultdict
 from typing import Dict, List, Tuple
+
+from config import DELTA_BUCKET_SIZE
 from ..processing import fingerprint as fp
 def filter(
     found_fp_list: List[Tuple[int, int]],
-    min_matches_per_song: int = 5,
+    min_matches_per_song = -1,
 ) -> Dict[int, Dict[int, List[int]]]:
     """
     Filters raw DB matches by candidate song.
     """
+    if min_matches_per_song == -1:
+        min_matches_per_song = max(3, int(len(found_fp_list) * 0.005))
+    song_addresses = defaultdict(set)
 
-    song_counts = defaultdict(int)
-
-    for _, hash_value in found_fp_list:
+    for address, hash_value in found_fp_list:
         _, song_id = fp.decode_hash(hash_value)
-        song_counts[song_id] += 1
+        song_addresses[song_id].add(address)
 
     valid_song_ids = {
         song_id
-        for song_id, count in song_counts.items()
-        if count >= min_matches_per_song
+        for song_id, addresses in song_addresses.items()
+        if len(addresses) >= min_matches_per_song
     }
 
     grouped: Dict[int, Dict[int, List[int]]] = {}
@@ -71,14 +74,16 @@ def analyze_time_coherency(
 
             for song_anchor_time in address_map[rec_address]:
                 delta = rec_anchor_time - song_anchor_time
-                delta_bins[delta] += 1
+                bucket = round(delta / DELTA_BUCKET_SIZE) * DELTA_BUCKET_SIZE
+                delta_bins[bucket] += 1
 
         if delta_bins:
             max_count = max(delta_bins.values())
-            best_shift = next(delta for delta, count in delta_bins.items() if count == max_count)
+            best_shift = next(bucket for bucket, count in delta_bins.items() if count == max_count)
+            if not delta_bins:
+                continue
             results[song_id] = (max_count, best_shift)
-        else:
-            results[song_id] = (0, 0)
+
 
     return results
 

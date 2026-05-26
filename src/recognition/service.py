@@ -2,11 +2,9 @@
 Сервисный слой
 """
 
-from logging import NullHandler
 from pathlib import Path
-import profile
 import sys
-from typing import List, Any
+from typing import List, Any, Tuple
 from ..database import music_database as DB
 from ..processing import fft_filter as ff
 from ..processing import preprocess as pp
@@ -43,7 +41,6 @@ class MusicRecognitionService:
     """
     def __init__(self, fp_db_name:str="fingerprints", songs_db_name:str="songs", db_path:Path= cfg.DATABASE_DIR)  -> None:
         # Инициализируем все компоненты
-        print(profile)
         self.db = DB.MusicDatabase(db_path, fp_db_name, songs_db_name)
         self.metadata = self._load_metadata()
 
@@ -78,7 +75,7 @@ class MusicRecognitionService:
             tasks.append((Path(p), song_id))
 
         cpu_count = os.cpu_count() or 1
-        max_workers = max(1, int(cpu_count * 0.7))
+        max_workers = max(1, int(cpu_count))
         added = 0
         futures=[]
         with ProcessPoolExecutor(max_workers=max_workers) as ex:
@@ -174,55 +171,63 @@ class MusicRecognitionService:
             print(f"{file_path.stem}|{self.get_song_by_id(song_id)['title']}")
 
         self.db.save_all()
-    def search_song(self, audio, _debug_correct_id = -1) ->Tuple[int,float]:
-
-
-        spectrogram = ff.stft(audio)
+        
+    def search_song(self, audio, _debug_correct_id: int = -1, file_path = "") -> Tuple[int, float]:
+        try:
+            spectrogram = ff.stft(audio)
+        except ValueError as e:
+            log(f"STFT error: {e}")
+            log(f"File path:    {file_path}")
+            return -1, -1.
         points = ff.filter_spectrogram(np.abs(spectrogram).T)
-        fingerprints_record = fp.create_fingerprints(points,song_id=invalidval) 
-        addresses:List[int] = []
-        for address, _ in fingerprints_record:
-            addresses.append(address)
-        record_targetzones = len(fingerprints_record)
+
+        fingerprints_record = fp.create_fingerprints(points, song_id=invalidval)
+        query_fp_count = len(fingerprints_record)
+
+        if query_fp_count == 0:
+            return -1, -1.0
+
+        addresses: List[int] = [
+            address
+            for address, _ in fingerprints_record
+        ]
+
         found_fp_list = self.db.fingerprints.lookup_flat_batch(addresses)
-       #print(f"Found {len(found_fp_list)} matching fingerprints in DB for query")
-        #print(f"Record has {len(fingerprints_record)} fingerprints, target zones: {record_targetzones}")
+
+        if not found_fp_list:
+            return -1, -1.0
+
+        min_matches_per_song = max(5, int(query_fp_count * 0.01))
+
         id_fps = mf.filter(
-                found_fp_list,
-                min_matches_per_song=max(5, int(len(fingerprints_record) * 0.01)),
-                )
+            found_fp_list,
+            min_matches_per_song=min_matches_per_song,
+        )
+
+        if not id_fps:
+            return -1, -1.0
+
         results = mf.analyze_time_coherency(fingerprints_record, id_fps)
-        if not results:
-            return (-1,-1)
 
-        best_score = -1
-        match_id = None
-        time_offset = None
-        for song_id, (max_count, time_offset_curr) in results.items():
-            song = self.db.get_song_by_id(song_id)
-            try:
-                fingerprint_count = int(song['fingerprint_count'])
-            except TypeError as e:
-                log(f"id={song['song_id']},dur={song['duration']},fps={song['fingerprints']}")
-            score = max_count / record_targetzones
-            if score > best_score:
-                best_score = score
-                match_id = song_id
-                time_offset = time_offset_curr
+        match_id, time_offset, score = self._select_best_match(
+            results=results,
+            query_fp_count=query_fp_count,
+        )
 
-        #print(best_score)
-        times_matched = results[match_id]
-        for song_id, count in results.items():
-            entries = self.db.fingerprints.get_entries_by_id(song_id)
-            song_name = self.get_song_by_id(song_id)['title']
-           # print(f"Song ID {song_id} ({song_name}) has time-coherent matches: {count}, coeff={count/record_targetzones:.2f}, total entries={entries}")
-        #log(f"Found match: song_id={match_id}, time_matches={times_matched}, coeff={times_matched/record_targetzones:.2f}")
-        if _debug_cut_correct:
-            def _save_to_file(audio, output_file: Path, sr: int = cfg.SAMPLE_RATE):
-                sf.write(output_file, audio, sr, subtype='FLOAT')
-            _save_to_file(audio=audio,output_file=Path(cfg.BASE_DIR / f"{_debug_correct_id}.wav"))
-       # print(f"OFFSET = {time_offset}")
-        return (match_id,-cfg.BIN_TIME*time_offset) 
+        if match_id == -1:
+            return -1, -1.0
+
+        if _debug_correct_id != -1 and match_id == _debug_correct_id and False:
+            def _save_to_file(audio_data, output_file: Path, sr: int = cfg.SAMPLE_RATE):
+                sf.write(output_file, audio_data, sr, subtype="FLOAT")
+
+            _save_to_file(
+                audio_data=audio,
+                output_file=Path(cfg.BASE_DIR / f"{_debug_correct_id}.wav"),
+            )
+
+        return match_id, -cfg.BIN_TIME * time_offset
+
     def search_song_from_file(self, file_path: Path) -> int:
         """
         Ищет песню по аудио файлу, возвращает song_id или -1 если не найдено
@@ -263,3 +268,62 @@ class MusicRecognitionService:
 
     def is_path_exists(self, file_path:Path):
         return self.db.is_path_exists(file_path)
+    
+    def _select_best_match(
+        self,
+        results: dict[int, tuple[int, int]],
+        query_fp_count: int,
+        min_offset_peak: int = 4,
+        min_score: float = 0.02,
+        min_margin: float = 0.005,
+    ) -> tuple[int, int, float]:
+        """
+        Выбирает лучший результат после analyze_time_coherency.
+
+        Args:
+            results:
+                Словарь {song_id: (max_count, time_offset)}.
+                max_count — максимальное количество совпадений при одном временном сдвиге.
+                time_offset — сдвиг в бинах.
+            query_fp_count:
+                Количество fingerprints в запросе.
+            min_offset_peak:
+                Минимальное количество совпадений в лучшем offset-пике.
+            min_score:
+                Минимальная доля совпавших fingerprints запроса.
+            min_margin:
+                Минимальный разрыв между score лучшего и второго кандидата.
+
+        Returns:
+            (song_id, time_offset, score) или (-1, 0, 0.0), если совпадение не принято.
+        """
+        if not results or query_fp_count <= 0:
+            return -1, 0, 0.0
+
+        candidates: list[tuple[float, int, int, int]] = []
+
+        for song_id, (max_count, time_offset) in results.items():
+            if max_count < min_offset_peak:
+                continue
+
+            score = max_count / query_fp_count
+
+            if score < min_score:
+                continue
+
+            candidates.append((score, song_id, max_count, time_offset))
+
+        if not candidates:
+            return -1, 0, 0.0
+
+        candidates.sort(reverse=True)
+
+        best_score, best_song_id, _, best_time_offset = candidates[0]
+
+        if len(candidates) > 1:
+            second_score = candidates[1][0]
+
+            if best_score - second_score < min_margin:
+                return -1, 0, 0.0
+
+        return best_song_id, best_time_offset, best_score

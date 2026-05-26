@@ -6,12 +6,30 @@ from src.recognition.service import MusicRecognitionService
 import config as cfg
 import numpy as np
 import time
-def _get_snippet_from_file(file_path: Path, file_duration: float, snippet_duration: float, rng):
+def _get_snippet_from_file(
+    file_path: Path,
+    snippet_duration: float,
+    rng,
+) -> np.ndarray:
     sr = cfg.SAMPLE_RATE
-    start_time = rng.uniform(0, file_duration - snippet_duration)
-    start_sample = int(start_time * sr)
-    end_sample = int((start_time + snippet_duration) * sr)
+
     full_audio, _ = librosa.load(file_path, sr=sr, mono=True)
+
+    if len(full_audio) == 0:
+        raise ValueError(f"Empty audio file: {file_path}")
+
+    snippet_samples = int(snippet_duration * sr)
+
+    if snippet_samples <= 0:
+        raise ValueError(f"Invalid snippet_duration: {snippet_duration}")
+
+    if len(full_audio) <= snippet_samples:
+        return full_audio
+
+    max_start_sample = len(full_audio) - snippet_samples
+    start_sample = rng.integers(0, max_start_sample + 1)
+    end_sample = start_sample + snippet_samples
+
     return full_audio[start_sample:end_sample]
 
 def _save_to_file(audio, output_file: Path, sr: int = cfg.SAMPLE_RATE):
@@ -42,7 +60,6 @@ class TestRunner:
 
             snippet = _get_snippet_from_file(
                 file_path=path,
-                file_duration=song_duration,
                 snippet_duration=args.snippet_duration,
                 rng=TestRunner.rng
             )
@@ -50,7 +67,8 @@ class TestRunner:
             start = time.perf_counter()
             found_id, time_offset = self.service.search_song(
                 snippet,
-                _debug_correct_id=song['song_id']
+                _debug_correct_id=song['song_id'],
+                file_path=path
             )
             elapsed = time.perf_counter() - start
             total_time += elapsed

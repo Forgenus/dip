@@ -123,12 +123,11 @@ def convert_file(src_path: Path, src_root: Path, dst_root: Path) -> ConversionRe
         "-i",
         str(src_path),
         "-vn",
+        "-af", f"lowpass=f={cfg.LOW_PASS_CUTOFF_HZ},volume=0.6",
         "-ac",
         str(TARGET_CHANNELS),
         "-ar",
         str(TARGET_SAMPLE_RATE),
-        "-sample_fmt",
-        TARGET_BIT_DEPTH,
         str(dst_path),
     ]
 

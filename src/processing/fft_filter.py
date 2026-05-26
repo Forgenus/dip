@@ -9,24 +9,30 @@ if str(root_dir) not in sys.path:
 import config as cfg
 
 def stft(audio:Any, n_fft:int=cfg.N_FFT, hop_length:int=cfg.HOP_LENGTH, window:str=cfg.WINDOW, normalize:bool = True) -> np.ndarray:
+    if audio is None:
+        raise ValueError("Audio is None")
+
+    if len(audio) == 0:
+        raise ValueError("Audio array is empty")
+
+    if len(audio) < n_fft:
+        raise ValueError(
+            f"Audio too short for STFT: len(audio)={len(audio)}, n_fft={n_fft}"
+        )
     X = librosa.stft(audio, n_fft=n_fft, hop_length=hop_length, window=window)
     X = np.abs(X)
     X = np.log1p(X)
     X -= np.min(X)
-    X /= np.max(X)
+    max_value = np.max(X)
+    if max_value > 0:
+        X /= max_value
     return X
 
 #spectrogram data: [time x freq] -> list of TimeFreqPoint: time x freq
-def filter_spectrogram(
-    data: np.ndarray,
-) -> np.ndarray:
-    """
-    data: shape (n_times, 512)
-    return: array of (time_idx, freq_idx)
-    """
+def filter_spectrogram(data: np.ndarray) -> np.ndarray:
     band_edges = [
         (0, 15),
-        (15,30),
+        (15, 30),
         (30, 60),
         (60, 120),
         (120, 240),
@@ -36,38 +42,34 @@ def filter_spectrogram(
     n_times = data.shape[0]
     n_bands = len(band_edges)
 
-    # [time, band] -> (freq_idx, amplitude)
-    strongest = np.zeros((n_times, n_bands, 2))
+    strongest = np.zeros((n_times, n_bands, 2), dtype=float)
 
-    # --- step 1–2: strongest bin per band per time frame ---
     for t in range(n_times):
         spectrum = data[t]
+
         for b, (low, high) in enumerate(band_edges):
             band = spectrum[low:high]
-            idx = np.argmax(band)
-            strongest[t, b, 0] = low + idx      # freq_idx
-            strongest[t, b, 1] = band[idx]     # amplitude
 
-    # --- global max per band ---
-    #global_band_max = strongest[:, :, 1].max(axis=0)
+            if band.size == 0:
+                continue
 
-    thresholds = np.zeros(len(band_edges))
-    for b, (low,high) in enumerate(band_edges):
-        #thresholds[b] = np.percentile(data[:,low:high],97) 
-        band = data[:,low:high] 
-        thresholds[b] = np.max(band) - 20
+            idx = int(np.argmax(band))
+            strongest[t, b, 0] = low + idx
+            strongest[t, b, 1] = band[idx]
 
-    
-   # maxMean = global_band_max.mean()
-   # threshold = maxMean * 0.5
+    thresholds = np.zeros(n_bands, dtype=float)
 
-    # --- filtering ---
+    for b in range(n_bands):
+        # threshold по максимумам в этой полосе, а не по всем bin-ам
+        thresholds[b] = np.percentile(strongest[:, b, 1], 75)
+
     result: list[tuple[int, int]] = []
+
     for t in range(n_times):
         for b in range(n_bands):
             amp = strongest[t, b, 1]
+
             if amp >= thresholds[b]:
-            #if amp>threshold:
                 freq = int(strongest[t, b, 0])
                 result.append((t, freq))
 

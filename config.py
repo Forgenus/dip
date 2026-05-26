@@ -30,9 +30,11 @@ N_FFT = int(os.getenv('N_FFT', '1024'))
 HOP_LENGTH = int(os.getenv('HOP_LENGTH', '512'))
 BIN_TIME = HOP_LENGTH/SAMPLE_RATE
 
+DELTA_BUCKET_SIZE = int(os.getenv('BUCKET_SIZE', '3'))
+
 RAW_AUDIO_DIR = get_path('RAW_AUDIO_DIR', 'data/raw')
 PROCESSED_AUDIO_DIR = get_path('PROCESSED_AUDIO_DIR', 'data/processed')
-
+LOW_PASS_CUTOFF_HZ = int(os.getenv('LOW_PASS_CUTOFF_HZ', '5000'))
 WIDTH = int(os.getenv('WIDTH', '5'))
 RNG_SEED = int(os.getenv('RNG_SEED','10'))
 WINDOW = os.getenv("WINDOW",'hann')
