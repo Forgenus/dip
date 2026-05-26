@@ -2,9 +2,11 @@
 Сервисный слой
 """
 
+from dataclasses import dataclass, field
+from inspect import trace
 from pathlib import Path
 import sys
-from typing import List, Any, Tuple
+from typing import List, Any, Tuple, Dict
 from ..database import music_database as DB
 from ..processing import fft_filter as ff
 from ..processing import preprocess as pp
@@ -20,6 +22,32 @@ if str(root_dir) not in sys.path:
     sys.path.insert(0, str(root_dir))
 import config as cfg
 invalidval = 2**32-2
+@dataclass
+class SearchTrace:
+    expected_id: int = -1
+    query_fp_count: int = 0
+
+    db_match_count: int = 0
+    correct_in_db_lookup: bool = False
+
+    candidates_after_filter: list[int] = field(default_factory=list)
+    correct_after_filter: bool = False
+
+    candidates_after_time: dict[int, tuple[int, int]] = field(default_factory=dict)
+    correct_after_time: bool = False
+    correct_time_result: tuple[int, int] | None = None
+
+    selected_id: int = -1
+    selected_score: float = 0.0 
+    expected_score: float = 0.0
+    expected_time_offset: int = 0
+
+    selected_max_count: int = 0
+    expected_max_count: int = 0
+
+    dropped_stage: str = "unknown"
+    reason: str = ""
+    
 log = print
 
 def compute_payload(file_path: Path, song_id: int) -> dict[str, Any]:
@@ -43,7 +71,7 @@ class MusicRecognitionService:
         # Инициализируем все компоненты
         self.db = DB.MusicDatabase(db_path, fp_db_name, songs_db_name)
         self.metadata = self._load_metadata()
-
+        self.last_search_trace: SearchTrace | None = None
         try:
             self.db.load_all()
         except FileNotFoundError:
@@ -172,19 +200,37 @@ class MusicRecognitionService:
 
         self.db.save_all()
         
-    def search_song(self, audio, _debug_correct_id: int = -1, file_path = "") -> Tuple[int, float]:
+    def search_song(
+    self,
+    audio,
+    _debug_correct_id: int = -1,
+    file_path: Path | None = None,
+    ) -> Tuple[int, float]:
+        trace = SearchTrace(expected_id=_debug_correct_id)
+        self.last_search_trace = trace
+
         try:
             spectrogram = ff.stft(audio)
         except ValueError as e:
+            trace.dropped_stage = "stft"
+            trace.reason = str(e)
             log(f"STFT error: {e}")
-            log(f"File path:    {file_path}")
-            return -1, -1.
+            log(f"File path: {file_path}")
+            return -1, -1.0
+
         points = ff.filter_spectrogram(np.abs(spectrogram).T)
 
-        fingerprints_record = fp.create_fingerprints(points, song_id=invalidval)
+        fingerprints_record = fp.create_fingerprints(
+            points,
+            song_id=invalidval,
+        )
+
         query_fp_count = len(fingerprints_record)
+        trace.query_fp_count = query_fp_count
 
         if query_fp_count == 0:
+            trace.dropped_stage = "fingerprint_creation"
+            trace.reason = "query produced 0 fingerprints"
             return -1, -1.0
 
         addresses: List[int] = [
@@ -194,7 +240,20 @@ class MusicRecognitionService:
 
         found_fp_list = self.db.fingerprints.lookup_flat_batch(addresses)
 
+        trace.db_match_count = len(found_fp_list)
+        trace.correct_in_db_lookup = self._song_id_in_found_matches(
+            found_fp_list,
+            _debug_correct_id,
+        )
+
         if not found_fp_list:
+            trace.dropped_stage = "db_lookup"
+            trace.reason = "no matching addresses found in DB"
+            return -1, -1.0
+
+        if _debug_correct_id != -1 and not trace.correct_in_db_lookup:
+            trace.dropped_stage = "db_lookup"
+            trace.reason = "correct song was not returned by fingerprint DB lookup"
             return -1, -1.0
 
         min_matches_per_song = max(5, int(query_fp_count * 0.01))
@@ -204,27 +263,74 @@ class MusicRecognitionService:
             min_matches_per_song=min_matches_per_song,
         )
 
+        trace.candidates_after_filter = list(id_fps.keys())
+        trace.correct_after_filter = _debug_correct_id in id_fps
+
         if not id_fps:
+            trace.dropped_stage = "filter"
+            trace.reason = "all candidates were removed by match_filter.filter"
             return -1, -1.0
 
-        results = mf.analyze_time_coherency(fingerprints_record, id_fps)
+        if _debug_correct_id != -1 and not trace.correct_after_filter:
+            trace.dropped_stage = "filter"
+            trace.reason = "correct song was removed by match_filter.filter"
+            return -1, -1.0
+
+        results = mf.analyze_time_coherency(
+            fingerprints_record,
+            id_fps,
+        )
+        if _debug_correct_id in results:
+            expected_max_count, expected_offset = results[_debug_correct_id]
+
+            trace.expected_max_count = expected_max_count
+            trace.expected_time_offset = expected_offset
+
+            trace.expected_score = self._compute_candidate_score(
+                expected_max_count,
+                query_fp_count,
+            )
+            
+        trace.candidates_after_time = results.copy()
+        trace.correct_after_time = _debug_correct_id in results
+        trace.correct_time_result = results.get(_debug_correct_id)
+
+        if not results:
+            trace.dropped_stage = "time_coherency"
+            trace.reason = "no candidates after analyze_time_coherency"
+            return -1, -1.0
+
+        if _debug_correct_id != -1 and not trace.correct_after_time:
+            trace.dropped_stage = "time_coherency"
+            trace.reason = "correct song was removed by analyze_time_coherency"
+            return -1, -1.0
 
         match_id, time_offset, score = self._select_best_match(
             results=results,
             query_fp_count=query_fp_count,
         )
 
+        trace.selected_id = match_id
+        trace.selected_score = score
+        
+        if match_id in results:
+            trace.selected_max_count = results[match_id][0]
+            
         if match_id == -1:
+            trace.dropped_stage = "selection"
+            trace.reason = "no candidate passed final selection thresholds"
             return -1, -1.0
 
-        if _debug_correct_id != -1 and match_id == _debug_correct_id and False:
-            def _save_to_file(audio_data, output_file: Path, sr: int = cfg.SAMPLE_RATE):
-                sf.write(output_file, audio_data, sr, subtype="FLOAT")
-
-            _save_to_file(
-                audio_data=audio,
-                output_file=Path(cfg.BASE_DIR / f"{_debug_correct_id}.wav"),
+        if _debug_correct_id != -1 and match_id != _debug_correct_id:
+            trace.dropped_stage = "selection"
+            trace.reason = (
+                "correct song survived previous stages, "
+                "but another candidate was selected"
             )
+            return match_id, -cfg.BIN_TIME * time_offset
+
+        trace.dropped_stage = "matched"
+        trace.reason = "song matched successfully"
 
         return match_id, -cfg.BIN_TIME * time_offset
 
@@ -268,14 +374,28 @@ class MusicRecognitionService:
 
     def is_path_exists(self, file_path:Path):
         return self.db.is_path_exists(file_path)
+    def _song_id_in_found_matches(
+    self,
+    found_fp_list: list[tuple[int, int]],
+    expected_id: int,
+    ) -> bool:
+        if expected_id == -1:
+            return False
+
+        for _, hash_value in found_fp_list:
+            _, song_id = fp.decode_hash(hash_value)
+
+            if song_id == expected_id:
+                return True
+        return False
     
     def _select_best_match(
         self,
         results: dict[int, tuple[int, int]],
         query_fp_count: int,
-        min_offset_peak: int = 4,
-        min_score: float = 0.02,
-        min_margin: float = 0.005,
+        min_offset_peak: int = 0,
+        min_score: float = 0.0,
+        min_margin: float = 0.00,
     ) -> tuple[int, int, float]:
         """
         Выбирает лучший результат после analyze_time_coherency.
@@ -327,3 +447,12 @@ class MusicRecognitionService:
                 return -1, 0, 0.0
 
         return best_song_id, best_time_offset, best_score
+    def _compute_candidate_score(
+    self,
+    max_count: int,
+    query_fp_count: int,
+    ) -> float:
+        if query_fp_count <= 0:
+            return 0.0
+
+        return max_count / query_fp_count

@@ -178,6 +178,14 @@ class SongInfoDB:
         self.stats = data.get('stats', {'total_songs': len(self.db)})
         self.song_paths = data['song_paths']
         log(f"SongInfoDB loaded from{filename}")
+        
+    def _ensure_no_duplicate_ids(self) -> None:
+        """Проверяет, что нет дублирующихся ID"""
+        ids = set()
+        for song_id in self.db.keys():
+            if song_id in ids:
+                raise ValueError(f"Duplicate song_id found: {song_id}")
+            ids.add(song_id)
 
     def get_random_song(self,rng):
         while True:
