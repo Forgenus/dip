@@ -15,3 +15,8 @@ These are non-blocking review notes. They should not stop the current MVP implem
 ## Task 4: Symmetric Torchaudio Features
 
 - Update or remove stale `tests/test_neural_features.py` coverage that still imports old `build_pair_features` and `log_mel` APIs.
+
+## Task 6: Validator Logits
+
+- Update stale `tests/test_neural_validator.py` fake model outputs to logits instead of probabilities.
+- Update stale `tests/test_neural_model.py` error-message expectations if they no longer match the new model.
