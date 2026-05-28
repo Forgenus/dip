@@ -1,6 +1,33 @@
 from dataclasses import dataclass
 from typing import Any, Dict
 
+
+@dataclass
+class CandidateTrace:
+    song_id: int
+    rank: int
+    score: float
+    max_count: int
+    time_offset_bins: int
+    time_offset_seconds: float
+
+
+@dataclass
+class NeuralCandidateTrace:
+    song_id: int
+    rank: int
+    fingerprint_score: float
+    fingerprint_max_count: int
+    fingerprint_time_offset_seconds: float
+    same_probability: float
+    decision: str
+    threshold: float
+    reliability: str
+    query_valid_seconds: float
+    candidate_valid_seconds: float
+    padding_ratio: float
+
+
 @dataclass
 class SearchTrace:
     expected_id: int = -1
@@ -34,8 +61,16 @@ class SearchTrace:
 
     dropped_stage: str = "unknown"
     reason: str = ""
+    top_candidates: list[CandidateTrace] = None
+    neural_enabled: bool = False
+    neural_checked: bool = False
+    neural_reason: str = ""
+    neural_results: list[NeuralCandidateTrace] = None
+    neural_error: str | None = None
 
     def __post_init__(self):
+        if self.top_candidates is None:
+            self.top_candidates = []
         if self.candidates_after_filter is None:
             self.candidates_after_filter = []
         if self.candidates_after_time is None:
@@ -48,6 +83,8 @@ class SearchTrace:
             self.expected_offset_buckets = {}
         if self.offset_fallback_attempts is None:
             self.offset_fallback_attempts = []
+        if self.neural_results is None:
+            self.neural_results = []
 
     @property
     def total_matches(self) -> int:
