@@ -1,0 +1,9 @@
+# Neural Model Training Follow-ups
+
+These are non-blocking review notes. They should not stop the current MVP implementation unless they become correctness issues.
+
+## Task 2: Song Split Helpers
+
+- `split_song_items()` could validate duplicate `song_id` values explicitly.
+- Small split inputs could have an explicit policy for minimum song count and ratio rounding.
+- `_portable_path()` could normalize outside-`BASE_DIR` paths with POSIX separators for more stable JSON.
