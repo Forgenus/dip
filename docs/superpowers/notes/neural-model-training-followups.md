@@ -7,3 +7,7 @@ These are non-blocking review notes. They should not stop the current MVP implem
 - `split_song_items()` could validate duplicate `song_id` values explicitly.
 - Small split inputs could have an explicit policy for minimum song count and ratio rounding.
 - `_portable_path()` could normalize outside-`BASE_DIR` paths with POSIX separators for more stable JSON.
+
+## Task 3: Neural Split CLI
+
+- Add dedicated CLI/handler tests for overwrite refusal, empty database handling, and summary output.
