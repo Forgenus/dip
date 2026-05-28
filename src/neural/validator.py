@@ -6,7 +6,8 @@ import warnings
 import torch
 
 import config as cfg
-from src.neural import audio_windows, features
+from src.neural import audio_windows
+from src.neural.features import TorchMelPairFeatureExtractor
 from src.neural.model import PairClassifier
 from src.processing import preprocess as pp
 from src.recognition.search_trace import CandidateTrace, NeuralCandidateTrace
@@ -48,6 +49,13 @@ class NeuralValidator:
         self.n_mels = n_mels
         self.n_fft = n_fft
         self.hop_length = hop_length
+        self.feature_extractor = TorchMelPairFeatureExtractor(
+            sample_rate=sample_rate,
+            n_mels=n_mels,
+            n_fft=n_fft,
+            hop_length=hop_length,
+        )
+        self.feature_extractor.eval()
 
     def evaluate_top_candidates(
         self,
@@ -125,7 +133,7 @@ class NeuralValidator:
             self.model.eval()
             return self.model
 
-        model = PairClassifier(input_channels=3)
+        model = PairClassifier(input_channels=2)
         state = torch.load(self.model_path, map_location="cpu")
         model.load_state_dict(state)
         model.eval()
@@ -133,23 +141,19 @@ class NeuralValidator:
         return model
 
     def _predict_probability(self, model, query_window, candidate_window) -> float:
+        query_tensor = torch.as_tensor(query_window, dtype=torch.float32)
+        candidate_tensor = torch.as_tensor(candidate_window, dtype=torch.float32)
+
         with warnings.catch_warnings():
             warnings.filterwarnings(
                 "ignore",
                 message="Empty filters detected in mel frequency basis.*",
                 category=UserWarning,
             )
-            pair_features = features.build_pair_features(
-                query_window,
-                candidate_window,
-                sample_rate=self.sample_rate,
-                n_mels=self.n_mels,
-                n_fft=self.n_fft,
-                hop_length=self.hop_length,
-            )
-        batch = torch.from_numpy(pair_features).unsqueeze(0).float()
-        with torch.no_grad():
-            probabilities = model(batch)
+            with torch.no_grad():
+                batch = self.feature_extractor(query_tensor, candidate_tensor)
+                logits = model(batch)
+                probabilities = torch.sigmoid(logits)
         probability = probabilities.reshape(-1)[0].item()
         return round(float(probability), 6)
 
