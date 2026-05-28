@@ -34,6 +34,15 @@ HOP_LENGTH = int(os.getenv('HOP_LENGTH', '768'))
 # Время за один таймфрейм (в секундах) - вычисляется динамически
 TIME_PER_FRAME = HOP_LENGTH / SAMPLE_RATE
 BIN_TIME = TIME_PER_FRAME  # Для обратной совместимости
+NEURAL_SHADOW_ENABLED = os.getenv("NEURAL_SHADOW_ENABLED", "False").lower() in ("true", "1", "yes")
+NEURAL_SHADOW_TOP_N = int(os.getenv("NEURAL_SHADOW_TOP_N", "3"))
+NEURAL_WINDOW_SECONDS = float(os.getenv("NEURAL_WINDOW_SECONDS", "5.0"))
+NEURAL_MIN_QUERY_SECONDS = float(os.getenv("NEURAL_MIN_QUERY_SECONDS", "2.0"))
+NEURAL_DECISION_THRESHOLD = float(os.getenv("NEURAL_DECISION_THRESHOLD", "0.70"))
+NEURAL_MODEL_PATH = get_path("NEURAL_MODEL_PATH", "data/models/neural_pair_classifier.pt")
+NEURAL_N_MELS = int(os.getenv("NEURAL_N_MELS", "64"))
+NEURAL_MEL_HOP_LENGTH = int(os.getenv("NEURAL_MEL_HOP_LENGTH", str(HOP_LENGTH)))
+NEURAL_MEL_N_FFT = int(os.getenv("NEURAL_MEL_N_FFT", str(N_FFT)))
 SEARCH_OFFSET_FALLBACK_MIN_SCORE = float(os.getenv('SEARCH_OFFSET_FALLBACK_MIN_SCORE', '0.03'))
 SEARCH_OFFSET_FALLBACK_SAMPLES = [
     HOP_LENGTH // 4,

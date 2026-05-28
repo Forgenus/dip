@@ -1,5 +1,8 @@
 import unittest
+from unittest.mock import patch
 
+import config as cfg
+from src.recognition.query_pipeline import build_top_candidates
 from src.recognition.search_trace import CandidateTrace, NeuralCandidateTrace, SearchTrace
 
 
@@ -58,6 +61,30 @@ class SearchTraceCandidateTests(unittest.TestCase):
         self.assertEqual("same", result.decision)
         self.assertEqual(0.82, result.same_probability)
         self.assertEqual("high", result.reliability)
+
+
+class TopCandidateBuilderTests(unittest.TestCase):
+    def test_build_top_candidates_sorts_by_score_then_max_count(self):
+        results = {
+            10: (2, -1),
+            20: (6, 2),
+            30: (4, 3),
+        }
+
+        with patch.object(cfg, "NEURAL_SHADOW_TOP_N", 2, create=True):
+            candidates = build_top_candidates(results, total_matches=20)
+
+        self.assertEqual([20, 30], [candidate.song_id for candidate in candidates])
+        self.assertEqual([1, 2], [candidate.rank for candidate in candidates])
+        self.assertAlmostEqual(6 / 20, candidates[0].score)
+        self.assertEqual(6, candidates[0].max_count)
+        self.assertEqual(2, candidates[0].time_offset_bins)
+        self.assertAlmostEqual(-cfg.BIN_TIME * 2, candidates[0].time_offset_seconds)
+
+    def test_build_top_candidates_returns_empty_when_total_matches_is_zero(self):
+        candidates = build_top_candidates({1: (4, 0)}, total_matches=0)
+
+        self.assertEqual([], candidates)
 
 
 if __name__ == "__main__":

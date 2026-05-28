@@ -10,7 +10,7 @@ from ..processing import fingerprint as fp
 from .indexing import build_fingerprints_from_audio
 from . import match_filter as mf
 from .scoring import compute_candidate_score, select_best_match
-from .search_trace import SearchTrace
+from .search_trace import CandidateTrace, SearchTrace
 
 
 invalidval = 2**32 - 2
@@ -97,6 +97,7 @@ class QueryPipeline:
         trace.candidates_after_time = results.copy()
         trace.correct_after_time = expected_id in results
         trace.correct_time_result = results.get(expected_id)
+        trace.top_candidates = build_top_candidates(results, total_matches)
 
         if not results:
             mark_trace(trace, "time_coherency", "no candidates after analyze_time_coherency")
@@ -151,6 +152,38 @@ def filter_matches(
     query_fp_count: int,
 ) -> dict:
     return mf.filter(found_fp_list)
+
+
+def build_top_candidates(
+    results: dict[int, tuple[int, int]],
+    total_matches: int,
+) -> list[CandidateTrace]:
+    if not results or total_matches <= 0:
+        return []
+
+    ranked: list[tuple[float, int, int, int]] = []
+    for song_id, (max_count, time_offset_bins) in results.items():
+        score = compute_candidate_score(max_count, total_matches)
+        ranked.append((score, max_count, song_id, time_offset_bins))
+
+    ranked.sort(reverse=True)
+
+    candidates: list[CandidateTrace] = []
+    for rank, (score, max_count, song_id, time_offset_bins) in enumerate(
+        ranked[:cfg.NEURAL_SHADOW_TOP_N],
+        start=1,
+    ):
+        candidates.append(
+            CandidateTrace(
+                song_id=song_id,
+                rank=rank,
+                score=score,
+                max_count=max_count,
+                time_offset_bins=time_offset_bins,
+                time_offset_seconds=-cfg.BIN_TIME * time_offset_bins,
+            )
+        )
+    return candidates
 
 
 def mark_trace(trace: SearchTrace, stage: str, reason: str) -> None:
