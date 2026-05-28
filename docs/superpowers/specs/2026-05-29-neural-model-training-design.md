@@ -252,11 +252,17 @@ The task is binary pair validation, not 700-class classification.
 Training split:
 
 ```text
-train songs: ~560
-heldout songs: ~100-140
-validation_known: train songs, different windows/augmentations
-validation_heldout: songs excluded from training
+train songs: 80%
+validation_heldout songs: 10%
+test_heldout songs: 10%
+validation_known: generated from train songs with different windows/augmentations
 ```
+
+Use song-level splits, not pair-level splits. A song must not appear in both training and heldout sets. This prevents the validator from looking strong only because it has seen the same song during training.
+
+`validation_known` is not a separate song split. It is an evaluation mode that uses `train` songs but generates different windows, pair samples, and augmentations than the training batches. It answers: "How useful is the model on the current known database?"
+
+`validation_heldout` and `test_heldout` use songs excluded from training. They answer: "Did the model learn general pair comparison, or did it overfit to known songs?"
 
 Per epoch target mix:
 
@@ -327,6 +333,8 @@ Responsibilities:
 8. Save checkpoints.
 9. Resume from checkpoint.
 
+The training module should consume a saved song split file rather than choosing new train/validation songs every run. Reproducible splits are important for comparing model versions.
+
 Training config should include:
 
 ```text
@@ -393,6 +401,136 @@ For future gray-zone use, pay special attention to:
 - hard-negative false positive rate;
 - weak-positive false negative rate;
 - short-query performance.
+
+## Song Split CLI
+
+Add a CLI command for creating and inspecting neural training splits.
+
+Command:
+
+```text
+python main.py neural-split --output data/neural/splits/song_split.json
+```
+
+Recommended arguments:
+
+```text
+--output PATH
+--seed INT
+--train-ratio FLOAT
+--validation-ratio FLOAT
+--test-ratio FLOAT
+--force
+```
+
+Defaults:
+
+```text
+output = data/neural/splits/song_split.json
+seed = RNG_SEED
+train_ratio = 0.80
+validation_ratio = 0.10
+test_ratio = 0.10
+force = false
+```
+
+The command should load songs from the existing song database through `MusicRecognitionService`.
+
+If the database is empty, it should fail with a clear message:
+
+```text
+No songs found in the database. Run process/recreate before neural-split.
+```
+
+If the output file already exists and `--force` is not provided, it should fail with a clear message instead of overwriting the split.
+
+### Split Format
+
+Save JSON:
+
+```json
+{
+  "version": 1,
+  "seed": 10,
+  "ratios": {
+    "train": 0.8,
+    "validation_heldout": 0.1,
+    "test_heldout": 0.1
+  },
+  "counts": {
+    "total": 700,
+    "train": 560,
+    "validation_heldout": 70,
+    "test_heldout": 70
+  },
+  "train": [],
+  "validation_heldout": [],
+  "test_heldout": []
+}
+```
+
+Each song entry:
+
+```json
+{
+  "song_id": 123,
+  "file_path": "data/processed/artist/song.wav",
+  "title": "Title",
+  "artist": "Artist",
+  "duration": 182.4
+}
+```
+
+Paths should be serialized as strings. Prefer paths relative to the project root when possible so the split is portable inside the project directory. Absolute paths are acceptable only for files outside the project root.
+
+### Split Algorithm
+
+1. Collect all songs from the loaded song database.
+2. Sort by `song_id` before shuffling to make the input order deterministic.
+3. Shuffle with `numpy.random.default_rng(seed)`.
+4. Compute counts:
+
+```text
+train_count = floor(total * train_ratio)
+validation_count = floor(total * validation_ratio)
+test_count = total - train_count - validation_count
+```
+
+5. Assign slices in this order:
+
+```text
+train
+validation_heldout
+test_heldout
+```
+
+For very small databases, the command should still produce a split but print a warning if any split is empty.
+
+### Split Module
+
+Create a reusable module:
+
+```text
+src/neural/splits.py
+```
+
+Suggested functions:
+
+```text
+collect_song_items(service_or_db) -> list[SongSplitItem]
+split_song_items(items, seed, train_ratio, validation_ratio, test_ratio) -> SongSplit
+save_song_split(split, path)
+load_song_split(path) -> SongSplit
+```
+
+The training module should call `load_song_split()` and then generate:
+
+```text
+train pairs from split.train
+validation_known pairs from split.train with validation sampling
+validation_heldout pairs from split.validation_heldout
+final test report from split.test_heldout
+```
 
 ## A/B Swap Invariance Tests
 
@@ -482,6 +620,10 @@ NEURAL_TRAIN_LR = 1e-3
 NEURAL_TRAIN_WEIGHT_DECAY = 1e-4
 NEURAL_TRAIN_MIXED_PRECISION = true
 NEURAL_TRAIN_NUM_WORKERS = 4
+NEURAL_SPLIT_PATH = data/neural/splits/song_split.json
+NEURAL_SPLIT_TRAIN_RATIO = 0.80
+NEURAL_SPLIT_VALIDATION_RATIO = 0.10
+NEURAL_SPLIT_TEST_RATIO = 0.10
 ```
 
 Keep fingerprint config unchanged.
@@ -511,4 +653,3 @@ Keep fingerprint config unchanged.
 - Requiring GPU at runtime.
 - Guaranteeing bit-identical CPU/GPU features.
 - Training on a larger external corpus before proving the 700-song MVP.
-
