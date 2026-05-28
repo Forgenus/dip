@@ -10,6 +10,7 @@ __pycache__/
 .venv/
 venv/
 mlenv/
+.worktrees/
 
 # Data / generated files
 data/
