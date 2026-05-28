@@ -11,3 +11,7 @@ These are non-blocking review notes. They should not stop the current MVP implem
 ## Task 3: Neural Split CLI
 
 - Add dedicated CLI/handler tests for overwrite refusal, empty database handling, and summary output.
+
+## Task 4: Symmetric Torchaudio Features
+
+- Update or remove stale `tests/test_neural_features.py` coverage that still imports old `build_pair_features` and `log_mel` APIs.
