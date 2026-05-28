@@ -17,8 +17,10 @@ from .search_trace import SearchTrace
 
 try:
     from src.neural.validator import NeuralValidator
-except Exception:
+    NEURAL_VALIDATOR_IMPORT_ERROR = None
+except Exception as error:
     NeuralValidator = None
+    NEURAL_VALIDATOR_IMPORT_ERROR = error
 
 
 logger = logging.getLogger(__name__)
@@ -35,11 +37,16 @@ class MusicRecognitionService:
     ) -> None:
         self.db = DB.MusicDatabase(db_path, fp_db_name, songs_db_name)
         self.query_pipeline = QueryPipeline(self.db)
-        self.neural_validator = (
-            NeuralValidator(self.db)
-            if NeuralValidator is not None and cfg.NEURAL_SHADOW_ENABLED
-            else None
-        )
+        self.neural_validator = None
+        self.neural_validator_error = None
+        if cfg.NEURAL_SHADOW_ENABLED:
+            if NeuralValidator is None:
+                self.neural_validator_error = str(NEURAL_VALIDATOR_IMPORT_ERROR)
+            else:
+                try:
+                    self.neural_validator = NeuralValidator(self.db)
+                except Exception as error:
+                    self.neural_validator_error = str(error)
         self.metadata = self._load_metadata()
         self.last_search_trace: SearchTrace | None = None
         try:
@@ -141,7 +148,13 @@ class MusicRecognitionService:
     def _run_neural_shadow_validation(self, audio, trace: SearchTrace) -> None:
         validator = getattr(self, "neural_validator", None)
         if validator is None:
-            trace.neural_enabled = False
+            trace.neural_enabled = bool(cfg.NEURAL_SHADOW_ENABLED)
+            neural_error = getattr(self, "neural_validator_error", None)
+            if trace.neural_enabled and neural_error:
+                trace.neural_checked = True
+                trace.neural_reason = "shadow_wide"
+                trace.neural_results = []
+                trace.neural_error = neural_error
             return
 
         trace.neural_enabled = True

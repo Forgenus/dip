@@ -135,6 +135,24 @@ class NeuralShadowServiceTests(unittest.TestCase):
         self.assertFalse(service.last_search_trace.neural_enabled)
         self.assertFalse(service.last_search_trace.neural_checked)
 
+    def test_enabled_import_error_is_recorded_without_breaking_search(self):
+        service = self.make_service(None)
+        service.neural_validator_error = "torch import failed"
+
+        with patch.object(cfg, "NEURAL_SHADOW_ENABLED", True, create=True):
+            song_id, time_offset = service.search_song(
+                np.ones(30, dtype=np.float32),
+                offset_fallback=False,
+            )
+
+        self.assertEqual(1, song_id)
+        self.assertEqual(0.0, time_offset)
+        self.assertTrue(service.last_search_trace.neural_enabled)
+        self.assertTrue(service.last_search_trace.neural_checked)
+        self.assertEqual("shadow_wide", service.last_search_trace.neural_reason)
+        self.assertEqual([], service.last_search_trace.neural_results)
+        self.assertEqual("torch import failed", service.last_search_trace.neural_error)
+
     def test_validator_error_preserves_fingerprint_result_and_records_trace_error(self):
         service = self.make_service(RaisingValidator())
 
