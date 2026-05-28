@@ -57,6 +57,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="Путь к аудиофайлу, по которому нужно найти песню.",
     )
 
+    parser_find.add_argument(
+        "--no-offset-fallback",
+        dest="offset_fallback",
+        action="store_false",
+        default=True,
+        help="Disable extra non-hop-aligned search attempts for weak results.",
+    )
+
     parser_recreate = subparsers.add_parser(
         "recreate",
         help="Очистить базу и заново добавить песни из SONGS_DIR",
@@ -118,43 +126,116 @@ def build_parser() -> argparse.ArgumentParser:
     parser_test.add_argument(
         "--snippet-duration",
         type=float,
-        default=10.0,
+        default=8,
         help="Длительность тестового аудиофрагмента в секундах.",
+    )
+    parser_test.add_argument(
+        "--failed-snippets-dir",
+        type=Path,
+        default=cfg.FAILED_SNIPPETS_DIR,
+        help="Directory for WAV snippets saved from failed recognition tests.",
+    )
+    parser_test.add_argument(
+        "--align-snippet-start",
+        action="store_true",
+        help="Align test snippet start sample to HOP_LENGTH for STFT grid diagnostics.",
+    )
+    parser_test.add_argument(
+        "--time-stretch-rate",
+        type=float,
+        default=1.0,
+        help="Apply librosa time-stretch to each test snippet. 1.0 keeps original speed.",
+    )
+    parser_test.add_argument(
+        "--save-test-snippets",
+        action="store_true",
+        help="Save every generated test snippet after alignment and effects are applied.",
+    )
+    parser_test.add_argument(
+        "--test-snippets-dir",
+        type=Path,
+        default=cfg.TEST_SNIPPETS_DIR,
+        help="Directory for WAV snippets saved with --save-test-snippets.",
     )
     parser_test.add_argument(
         "--noise",
         action="store_true",
-        help=(
-            "Флаг для тестирования с шумом. "
-            "В текущем TestRunner этот параметр передаётся, но шум к сниппету не применяется."
-        ),
+        help="Apply white noise to each test snippet.",
     )
     parser_test.add_argument(
         "--noise-level",
         type=float,
         default=0.02,
-        help=(
-            "Уровень шума для тестирования. "
-            "В текущем TestRunner этот параметр передаётся, но шум к сниппету не применяется."
-        ),
+        help="Standard deviation for white noise added with --noise.",
     )
     parser_test.add_argument(
         "--volume",
         choices=["none", "up", "down", "random"],
         default="none",
-        help=(
-            "Режим изменения громкости тестового сниппета. "
-            "В текущем TestRunner этот параметр передаётся, но громкость не изменяется."
-        ),
+        help="Volume manipulation mode for each test snippet.",
     )
     parser_test.add_argument(
         "--volume-factor",
         type=float,
         default=1.5,
-        help=(
-            "Коэффициент изменения громкости. "
-            "В текущем TestRunner этот параметр передаётся, но громкость не изменяется."
+        help="Multiplier for --volume up/down/random.",
+    )
+
+    parser_test.add_argument(
+        "--no-offset-fallback",
+        dest="offset_fallback",
+        action="store_false",
+        default=True,
+        help="Disable extra non-hop-aligned search attempts for weak results.",
+    )
+    parser_test.add_argument(
+        "--failure-analysis",
+        action="store_true",
+        help="Print detailed failed-snippet analysis for failed recognition tests.",
+    )
+
+    parser_debug_effects = subparsers.add_parser(
+        "debug-effects",
+        help="Export one random snippet with each audio effect applied separately.",
+        description=(
+            "Creates one random snippet from a random song in the database, saves the original WAV, "
+            "then saves separate WAV files for noise, volume up, volume down, random volume, and time stretch."
         ),
+    )
+    parser_debug_effects.add_argument(
+        "--snippet-duration",
+        type=float,
+        default=8,
+        help="Duration of the exported snippet in seconds.",
+    )
+    parser_debug_effects.add_argument(
+        "--output-dir",
+        type=Path,
+        default=cfg.EFFECT_SNIPPETS_DIR,
+        help=f"Directory for exported effect snippets. Default: {cfg.EFFECT_SNIPPETS_DIR}",
+    )
+    parser_debug_effects.add_argument(
+        "--align-snippet-start",
+        action="store_true",
+        help="Align snippet start sample to HOP_LENGTH for STFT grid diagnostics.",
+    )
+    parser_debug_effects.add_argument(
+        "--noise-level",
+        type=float,
+        default=0.02,
+        help="Standard deviation for the exported noise variant.",
+    )
+    parser_debug_effects.add_argument(
+        "--volume-factor",
+        type=float,
+        default=1.5,
+        help="Multiplier for exported volume up/down/random variants.",
+    )
+    parser_debug_effects.add_argument(
+        "--time-stretch-rate",
+        type=float,
+        default=1.1,
+        help="Librosa time-stretch rate for the exported time_stretch variant.",
     )
 
     subparsers.add_parser(

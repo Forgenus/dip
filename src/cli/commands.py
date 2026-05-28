@@ -3,6 +3,7 @@ import shlex
 import time
 
 import config as cfg
+from src.testing.effect_snippet_exporter import EffectSnippetExporter
 from src.testing.test_runner import TestRunner
 
 
@@ -19,6 +20,7 @@ class CommandHandler:
             "print": self.print_stats,
             "print-songs": self.print_songs,
             "test": self.test,
+            "debug-effects": self.debug_effects,
         }
 
     def handle(self, command: str, parser: argparse.ArgumentParser) -> None:
@@ -45,6 +47,9 @@ class CommandHandler:
     def test(self, args) -> None:
         TestRunner(self.service).run(args)
 
+    def debug_effects(self, args) -> None:
+        EffectSnippetExporter(self.service).run(args)
+
     def process(self, args) -> None:
         start = time.perf_counter()
         src = args.src or cfg.SONGS_DIR
@@ -58,14 +63,17 @@ class CommandHandler:
         self.service.add_song_from_file(args.src)
 
     def find(self, args) -> None:
-        match_id, time_offset = self.service.search_song_from_file(args.src)
+        match_id, time_offset = self.service.search_song_from_file(
+            args.src,
+            offset_fallback=getattr(args, "offset_fallback", True),
+        )
 
         if match_id == -1:
             print("No match found")
             return
 
         print(f"Found match: {match_id}")
-        self.service.print_song_info(match_id)
+        self._print_song_info(match_id)
         print(f"time offset = {time_offset}")
 
     def debug_search(self, args) -> None:
@@ -83,6 +91,24 @@ class CommandHandler:
 
     def print_songs(self, args) -> None:
         if args.id == -1:
-            self.service.print_all_songs()
+            for song_id in self.service.db.songs.db.keys():
+                self._print_song_info(song_id)
+                print("-" * 20)
         else:
-            self.service.print_song_info(args.id)
+            self._print_song_info(args.id)
+
+    def _print_song_info(self, song_id: int) -> None:
+        song_info = self.service.get_song_by_id(song_id)
+        if not song_info:
+            print(f"Song with ID {song_id} not found")
+            return
+
+        print(f"ID: {song_info['song_id']}")
+        print(f"Title: {song_info['title']}")
+        print(f"Artist: {song_info['artist']}")
+        print(f"Album: {song_info['album']}")
+        print(f"Year: {song_info['year']}")
+        print(f"Genre: {song_info['genre']}")
+        print(f"Duration: {song_info['duration']} seconds")
+        print(f"File Path: {song_info['file_path']}")
+        print(f"FPs: {song_info['fingerprint_count']}")

@@ -8,7 +8,9 @@ import librosa
 import soundfile as sf
 import numpy as np
 import random
-log = print
+import logging
+
+logger = logging.getLogger(__name__)
 # -----------------------------
 # Dataset для пар аудио
 # -----------------------------
@@ -161,11 +163,11 @@ def train_model(
             total_correct += (preds == labels).sum().item()
             total_samples += labels.size(0)
 
-            log(f"Epoch {epoch}, Batch {batch_idx}, Loss: {loss.item():.4f}, "
+            logger.info(f"Epoch {epoch}, Batch {batch_idx}, Loss: {loss.item():.4f}, "
                   f"Acc: {total_correct/total_samples:.4f}")
 
         torch.save(model.state_dict(), model_path)
-        log(f"Epoch {epoch} finished, model saved to {model_path}")
+        logger.info(f"Epoch {epoch} finished, model saved to {model_path}")
 
 def validate_model(model, loader, device, threshold):
     """Validation loop to evaluate model performance"""
@@ -189,19 +191,19 @@ def validate_model(model, loader, device, threshold):
             total_samples += labels.size(0)
             
             if batch_idx % 10 == 0:
-                log(f"Validation batch {batch_idx}, Current accuracy: {total_correct/total_samples:.4f}")
+                logger.info(f"Validation batch {batch_idx}, Current accuracy: {total_correct/total_samples:.4f}")
     
     accuracy = total_correct / total_samples
-    log(f"\n=== Validation Results ===")
-    log(f"Total samples: {total_samples}")
-    log(f"Correct predictions: {total_correct}")
-    log(f"Accuracy: {accuracy:.4f}")
+    logger.info(f"\n=== Validation Results ===")
+    logger.info(f"Total samples: {total_samples}")
+    logger.info(f"Correct predictions: {total_correct}")
+    logger.info(f"Accuracy: {accuracy:.4f}")
     return accuracy
 
 def setup_dataloader(folder, batch_size, num_workers):
     """Setup dataset and dataloader"""
     files = glob.glob(os.path.join(folder, "*.wav"))
-    log(f"Found {len(files)} files")
+    logger.info(f"Found {len(files)} files")
     dataset = AudioPairsDataset(files)
     loader = DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers)
     return loader
@@ -212,40 +214,40 @@ def setup_model(device, model_path, resume_training):
     start_epoch = 0
     
     if resume_training and os.path.exists(model_path):
-        log(f"Loading model from {model_path}...")
+        logger.info(f"Loading model from {model_path}...")
         try:
             model.load_state_dict(torch.load(model_path, map_location=device))
-            log("Model loaded successfully!")
+            logger.info("Model loaded successfully!")
         except Exception as e:
-            log(f"Error while loading model: {e}")
-            log("Starting from scratch...")
+            logger.info(f"Error while loading model: {e}")
+            logger.info("Starting from scratch...")
     else:
-        log("Starting from scratch.")
+        logger.info("Starting from scratch.")
     
     return model, start_epoch
 
 def get_user_choice():
     """Get user input for training/validation and number of threads"""
-    log("\n=== Audio Siamese Network ===")
-    log("Choose mode:")
-    log("  1 - Train model")
-    log("  2 - Validate model")
-    log("  3 - Train and then validate")
+    logger.info("\n=== Audio Siamese Network ===")
+    logger.info("Choose mode:")
+    logger.info("  1 - Train model")
+    logger.info("  2 - Validate model")
+    logger.info("  3 - Train and then validate")
     
     while True:
         choice = input("\nEnter your choice (1/2/3): ").strip()
         if choice in ['1', '2', '3']:
             break
-        log("Invalid choice. Please enter 1, 2, or 3.")
+        logger.info("Invalid choice. Please enter 1, 2, or 3.")
     
     while True:
         try:
             num_workers = int(input("Enter number of worker threads: "))
             if num_workers > 0:
                 break
-            log("Please enter a positive number.")
+            logger.info("Please enter a positive number.")
         except ValueError:
-            log("Please enter a valid number.")
+            logger.info("Please enter a valid number.")
     
     return int(choice), num_workers
 
@@ -274,7 +276,7 @@ if __name__ == "__main__":
     
     # Execute user choice
     if choice == 1:  # Train only
-        log("\n=== Starting Training ===")
+        logger.info("\n=== Starting Training ===")
         train_model(
             model=model,
             loader=loader,
@@ -285,18 +287,18 @@ if __name__ == "__main__":
             threshold=threshold,
             model_path=model_path
         )
-        log("\n=== Training completed! ===")
+        logger.info("\n=== Training completed! ===")
         
     elif choice == 2:  # Validate only
-        log("\n=== Starting Validation ===")
+        logger.info("\n=== Starting Validation ===")
         if not os.path.exists(model_path):
-            log(f"Error: Model file {model_path} not found. Please train the model first.")
+            logger.info(f"Error: Model file {model_path} not found. Please train the model first.")
         else:
             accuracy = validate_model(model, loader, device, threshold)
-            log(f"\nValidation completed. Final accuracy: {accuracy:.4f}")
+            logger.info(f"\nValidation completed. Final accuracy: {accuracy:.4f}")
             
     elif choice == 3:  # Train then validate
-        log("\n=== Starting Training ===")
+        logger.info("\n=== Starting Training ===")
         train_model(
             model=model,
             loader=loader,
@@ -307,6 +309,6 @@ if __name__ == "__main__":
             threshold=threshold,
             model_path=model_path
         )
-        log("\n=== Training completed! Starting Validation ===")
+        logger.info("\n=== Training completed! Starting Validation ===")
         accuracy = validate_model(model, loader, device, threshold)
-        log(f"\nFinal accuracy after training: {accuracy:.4f}")
+        logger.info(f"\nFinal accuracy after training: {accuracy:.4f}")

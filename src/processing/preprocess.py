@@ -1,11 +1,15 @@
-import librosa
 import numpy as np
+import soundfile as sf
+from scipy import signal
 from typing import Dict, Tuple
 from pathlib import Path
+import logging
+import math
+import time
 
 import config as cfg
 
-log = print
+logger = logging.getLogger(__name__)
 
 def metadata_key_for_song(file_path: Path) -> str:
     """
@@ -23,7 +27,17 @@ def load_audio(file_path:Path, target_sr:int=cfg.SAMPLE_RATE):
     """
     Загружает аудио файл и преобразует его в моно с заданной частотой дискретизации
     """
-    audio = librosa.load(file_path, sr=target_sr, mono=True)[0]
+    audio, source_sr = sf.read(str(file_path), dtype="float32", always_2d=False)
+
+    if audio.ndim > 1:
+        audio = np.mean(audio, axis=1, dtype=np.float32)
+
+    if target_sr and source_sr != target_sr:
+        gcd = math.gcd(source_sr, target_sr)
+        audio = signal.resample_poly(audio, target_sr // gcd, source_sr // gcd).astype(np.float32, copy=False)
+    else:
+        audio = np.asarray(audio, dtype=np.float32)
+
     return audio
 
 DEFAULT_METADATA = {

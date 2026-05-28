@@ -11,7 +11,7 @@ def build_ffmpeg_command(src_path: Path, dst_path: Path) -> list[str]:
         str(src_path),
         "-vn",
         "-af",
-        f"lowpass=f={cfg.LOW_PASS_CUTOFF_HZ},volume=0.6",
+        f"volume=0.6",
         "-ac",
         "1",
         "-ar",

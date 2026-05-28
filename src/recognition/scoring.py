@@ -7,32 +7,34 @@ class MatchSelection:
     time_offset: int
     score: float
     max_count: int
+    total_matches: int = 0
     expected_score: float | None = None
     expected_max_count: int | None = None
     reason: str = ""
 
 
-def compute_candidate_score(max_count: int, query_fp_count: int) -> float:
-    if query_fp_count <= 0:
+def compute_candidate_score(max_count: int, total_matches: int) -> float:
+    if total_matches <= 0:
         return 0.0
 
-    return max_count / query_fp_count
+    return max_count / total_matches
 
 
 def select_best_match(
     results: Dict[int, Tuple[int, int]],
-    query_fp_count: int,
+    total_matches: int,
     expected_id: int = -1,
     min_offset_peak: int = 0,
     min_score: float = 0.0,
     min_margin: float = 0.0,
 ) -> MatchSelection:
-    if not results or query_fp_count <= 0:
+    if not results or total_matches <= 0:
         return MatchSelection(
             song_id=-1,
             time_offset=0,
             score=0.0,
             max_count=0,
+            total_matches=total_matches,
             expected_score=None,
             expected_max_count=None,
             reason="no candidates"
@@ -44,7 +46,7 @@ def select_best_match(
         if max_count < min_offset_peak:
             continue
 
-        score = compute_candidate_score(max_count, query_fp_count)
+        score = compute_candidate_score(max_count, total_matches)
 
         if score < min_score:
             continue
@@ -57,6 +59,7 @@ def select_best_match(
             time_offset=0,
             score=0.0,
             max_count=0,
+            total_matches=total_matches,
             expected_score=None,
             expected_max_count=None,
             reason="no candidates passed thresholds"
@@ -73,6 +76,7 @@ def select_best_match(
                 time_offset=0,
                 score=0.0,
                 max_count=0,
+                total_matches=total_matches,
                 expected_score=None,
                 expected_max_count=None,
                 reason="margin threshold not met"
@@ -82,13 +86,14 @@ def select_best_match(
     expected_max_count = None
     if expected_id != -1 and expected_id in results:
         expected_max_count, _ = results[expected_id]
-        expected_score = compute_candidate_score(expected_max_count, query_fp_count)
+        expected_score = compute_candidate_score(expected_max_count, total_matches)
 
     return MatchSelection(
         song_id=best_song_id,
         time_offset=best_time_offset,
         score=best_score,
         max_count=best_max_count,
+        total_matches=total_matches,
         expected_score=expected_score,
         expected_max_count=expected_max_count,
         reason="selected"

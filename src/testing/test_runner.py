@@ -1,45 +1,28 @@
 # test_runner.py
-import librosa
-import soundfile as sf
+from dataclasses import replace
 from pathlib import Path
-from src.recognition.service import MusicRecognitionService
-from src.testing.reporting import format_search_trace
-from src.testing.snippets import _get_snippet_from_file
-import config as cfg
-import numpy as np
 import time
-def _get_snippet_from_file(
-    file_path: Path,
-    snippet_duration: float,
-    rng,
-) -> np.ndarray:
-    sr = cfg.SAMPLE_RATE
 
-    full_audio, _ = librosa.load(file_path, sr=sr, mono=True)
+import numpy as np
 
-    if len(full_audio) == 0:
-        raise ValueError(f"Empty audio file: {file_path}")
-
-    snippet_samples = int(snippet_duration * sr)
-
-    if snippet_samples <= 0:
-        raise ValueError(f"Invalid snippet_duration: {snippet_duration}")
-
-    if len(full_audio) <= snippet_samples:
-        return full_audio
-
-    max_start_sample = len(full_audio) - snippet_samples
-    start_sample = rng.integers(0, max_start_sample + 1)
-    end_sample = start_sample + snippet_samples
-
-    return full_audio[start_sample:end_sample]
-
-def _save_to_file(audio, output_file: Path, sr: int = cfg.SAMPLE_RATE):
-    sf.write(output_file, audio, sr, subtype='FLOAT')
+import config as cfg
+from src.recognition.service import MusicRecognitionService
+from src.testing.failure_analysis import analyze_failed_snippet_against_file
+from src.testing.reporting import (
+    FailedSnippetRecord,
+    format_search_trace,
+)
+from src.testing.snippet_effects import SnippetEffects, apply_snippet_effects
+from src.testing.snippets import (
+    build_failed_snippet_filename,
+    build_test_snippet_filename,
+    create_snippet_from_file,
+    save_snippet_to_file,
+)
 
 
 class TestRunner:
-    rng: np.random.Generator = np.random.default_rng(cfg.RNG_SEED)
+    rng: np.random.Generator = np.random.default_rng()
     def __init__(self, service: MusicRecognitionService):
         self.service = service
 
@@ -48,49 +31,197 @@ class TestRunner:
             self.service.clear_all()
             self.service.add_songs_from_folder(cfg.SONGS_DIR, max_amount=args.max_files)
 
-        if not args.keep_rng:
+        if args.keep_rng:
             TestRunner.rng = np.random.default_rng(cfg.RNG_SEED)
 
         correct = 0
         count = args.test_count
         total_time = 0.0
+        offset_seconds_list: list[float] = []
+        failed_records: list[FailedSnippetRecord] = []
+        failed_snippets_dir = getattr(args, "failed_snippets_dir", cfg.FAILED_SNIPPETS_DIR)
+        test_snippets_dir = getattr(args, "test_snippets_dir", cfg.TEST_SNIPPETS_DIR)
+        snippet_effects = self._snippet_effects_from_args(args)
 
-        for _ in range(count):
+        for index in range(1, count + 1):
             song = self.service.get_random_song(rng=TestRunner.rng)
-            path = song['file_path']
-            song_duration = float(song['duration'])
+            if song is None:
+                print("No songs in database")
+                break
 
-            snippet = _get_snippet_from_file(
+            path = song['file_path']
+
+            snippet = create_snippet_from_file(
                 file_path=path,
                 snippet_duration=args.snippet_duration,
-                rng=TestRunner.rng
+                rng=TestRunner.rng,
+                align_to_hop=getattr(args, "align_snippet_start", False),
             )
+            snippet = self._apply_snippet_effects(snippet, snippet_effects)
+
+            if getattr(args, "save_test_snippets", False):
+                output_file = self._save_test_snippet(
+                    snippet=snippet,
+                    output_dir=test_snippets_dir,
+                    index=index,
+                    expected_id=song["song_id"],
+                    expected_title=song["title"],
+                )
+                print(f"Saved test snippet: {output_file}")
 
             start = time.perf_counter()
             found_id, time_offset = self.service.search_song(
-                snippet,
+                snippet.audio,
                 _debug_correct_id=song['song_id'],
-                file_path=path
+                file_path=path,
+                offset_fallback=getattr(args, "offset_fallback", True),
             )
             elapsed = time.perf_counter() - start
             total_time += elapsed
 
             found = self.service.get_song_by_id(found_id)
             expected = song['title']
-            result = found['title'] if found else 'nothing'
+            result = found['title'] if found else 'none'
             match = found_id == song['song_id']
+            hop_mod = snippet.start_sample % cfg.HOP_LENGTH
+            # Время смещения в секундах
+            offset_seconds = hop_mod / cfg.SAMPLE_RATE
+            offset_seconds_list.append(offset_seconds)
 
             if match:
                 correct += 1
+                print(
+                    f"Y expected={expected} {song['song_id']} | found={result} {found_id} "
+                    f"hop_mod={hop_mod} offset_seconds={offset_seconds:.4f} "
+                    f"{self._format_success_metrics()}"
+                )
             else:
-                print(f"{'Y' if match else 'N'} expected={expected} {song['song_id']} | found={result} {found_id} ")
+                print(
+                    f"{'Y' if match else 'N'} expected={expected} {song['song_id']} | "
+                    f"found={result} {found_id} hop_mod={hop_mod} offset_seconds={offset_seconds:.4f} "
+                )
+                record = self._save_failed_snippet(
+                    snippet=snippet,
+                    output_dir=failed_snippets_dir,
+                    index=len(failed_records) + 1,
+                    expected_id=song["song_id"],
+                    expected_title=expected,
+                    found_id=found_id,
+                    found_title=result,
+                )
+                failed_records.append(record)
+                print(f"Saved failed snippet: {record.output_file}")
 
                 trace = self.service.last_search_trace
 
+                if trace is not None and getattr(args, "failure_analysis", False):
+                    trace.failure_analysis = analyze_failed_snippet_against_file(
+                        snippet_audio=snippet.audio,
+                        original_file=snippet.source_file,
+                        start_seconds=snippet.start_seconds,
+                        duration_seconds=snippet.duration_seconds,
+                    )
                 if trace is not None:
                     print(format_search_trace(trace))
 
         avg_time = total_time / count if count > 0 else 0.0
+        accuracy = (correct / count * 100) if count > 0 else 0.0
 
-        print(f"\nAccuracy: {correct}/{count} ({correct/count*100:.1f}%)")
+        print(f"\nAccuracy: {correct}/{count} ({accuracy:.1f}%)")
         print(f"Average query time: {avg_time:.4f} sec")
+        
+        if offset_seconds_list:
+            min_offset = np.min(offset_seconds_list)
+            max_offset = np.max(offset_seconds_list)
+            mean_offset = np.mean(offset_seconds_list)
+            median_offset = np.median(offset_seconds_list)
+            print(f"Offset seconds - min={min_offset:.4f} max={max_offset:.4f} mean={mean_offset:.4f} median={median_offset:.4f}")
+
+    def _snippet_effects_from_args(self, args) -> SnippetEffects:
+        return SnippetEffects(
+            noise=getattr(args, "noise", False),
+            noise_level=getattr(args, "noise_level", 0.02),
+            volume=getattr(args, "volume", "none"),
+            volume_factor=getattr(args, "volume_factor", 1.5),
+            time_stretch_rate=getattr(args, "time_stretch_rate", 1.0),
+        )
+
+    def _apply_snippet_effects(self, snippet, effects: SnippetEffects):
+        audio = apply_snippet_effects(
+            audio=snippet.audio,
+            sample_rate=snippet.sample_rate,
+            rng=TestRunner.rng,
+            effects=effects,
+        )
+        return replace(
+            snippet,
+            audio=audio,
+            duration_seconds=len(audio) / snippet.sample_rate,
+        )
+
+    def _format_success_metrics(self) -> str:
+        trace = self.service.last_search_trace
+        if trace is None:
+            return "selected_score=None query_fp_count=None total_matches=None"
+
+        selected_score = getattr(trace, "selected_score", None)
+        if selected_score is None:
+            score_text = "None"
+        else:
+            score_text = f"{selected_score:.4f}"
+
+        return (
+            f"selected_score={score_text} "
+            f"query_fp_count={getattr(trace, 'query_fp_count', None)} "
+            f"total_matches={getattr(trace, 'total_matches', None)}"
+            f"max_count={getattr(trace, 'selected_max_count', None)}"
+        )
+
+    def _save_failed_snippet(
+        self,
+        snippet,
+        output_dir,
+        index: int,
+        expected_id: int,
+        expected_title: str,
+        found_id: int,
+        found_title: str,
+    ) -> FailedSnippetRecord:
+        filename = build_failed_snippet_filename(
+            index=index,
+            expected_id=expected_id,
+            expected_title=expected_title,
+            found_id=found_id,
+            start_seconds=snippet.start_seconds,
+        )
+        output_file = Path(output_dir) / filename
+        save_snippet_to_file(snippet, output_file)
+
+        return FailedSnippetRecord(
+            output_file=output_file,
+            expected_id=expected_id,
+            expected_title=expected_title,
+            found_id=found_id,
+            found_title=found_title,
+            source_file=snippet.source_file,
+            start_seconds=snippet.start_seconds,
+            duration_seconds=snippet.duration_seconds,
+        )
+
+    def _save_test_snippet(
+        self,
+        snippet,
+        output_dir,
+        index: int,
+        expected_id: int,
+        expected_title: str,
+    ) -> Path:
+        filename = build_test_snippet_filename(
+            index=index,
+            expected_id=expected_id,
+            expected_title=expected_title,
+            start_seconds=snippet.start_seconds,
+        )
+        output_file = Path(output_dir) / filename
+        save_snippet_to_file(snippet, output_file)
+        return output_file

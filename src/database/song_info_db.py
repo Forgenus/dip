@@ -2,8 +2,9 @@
 import pickle
 from typing import Dict, List, Optional, Tuple, Any
 from pathlib import Path
-import numpy
-log = print
+import logging
+
+logger = logging.getLogger(__name__)
 class SongInfoDB:
     """
     База данных для хранения информации о песнях
@@ -42,6 +43,7 @@ class SongInfoDB:
         """
         if song_id in self.db:
             raise ValueError(f"Song with ID {song_id} already exists")
+        self.next_id = max(self.next_id, song_id + 1)
     
 
         song_info:Dict[str, Any] = {
@@ -135,15 +137,15 @@ class SongInfoDB:
     
     def print_stats(self) -> None:
         """Выводит статистику базы"""
-        log(f"\n=== SongInfoDB stats '{self.name}' ===")
-        log(f"Total songs: {self.stats['total_songs']}")
-        log(f"Total duration: {self.stats['total_duration']}")    
+        logger.info("\n=== SongInfoDB stats '%s' ===", self.name)
+        logger.info("Total songs: %s", self.stats['total_songs'])
+        logger.info("Total duration: %s", self.stats['total_duration'])    
     def save(self, path: Path) -> bool:
         """
         Сохраняет базу в файл
         """
         if not self.changed:
-            log("No changes to save for SongInfoDB")
+            logger.info("No changes to save for SongInfoDB")
             return False
         filename = path / f"{self.name}.pkl"
         data: Dict[str, Any] = {
@@ -156,7 +158,7 @@ class SongInfoDB:
         
         with filename.open('wb') as f:  
             pickle.dump(data, f)
-        log(f"SongInfoDB saved to {filename}")
+        logger.info("SongInfoDB saved to %s", filename)
         self.changed = False
         return True
     
@@ -174,10 +176,10 @@ class SongInfoDB:
         
         self.name = data['name']
         self.db = data['db']
-        self.next_id = data.get('next_id', 0)
+        self.next_id = max(data.get('next_id', 0), max(self.db.keys(), default=-1) + 1)
         self.stats = data.get('stats', {'total_songs': len(self.db)})
-        self.song_paths = data['song_paths']
-        log(f"SongInfoDB loaded from{filename}")
+        self.song_paths = data.get('song_paths', {song['file_path'] for song in self.db.values()})
+        logger.info("SongInfoDB loaded from %s", filename)
         
     def _ensure_no_duplicate_ids(self) -> None:
         """Проверяет, что нет дублирующихся ID"""
@@ -187,8 +189,10 @@ class SongInfoDB:
                 raise ValueError(f"Duplicate song_id found: {song_id}")
             ids.add(song_id)
 
-    def get_random_song(self,rng):
-        while True:
-            song = self.get_song(rng.integers(0,self.next_id-1))
-            if song:
-                return song
+    def get_random_song(self, rng) -> Optional[Dict[str, Any]]:
+        if not self.db:
+            return None
+
+        song_ids = list(self.db.keys())
+        index = int(rng.integers(0, len(song_ids)))
+        return self.db[song_ids[index]]

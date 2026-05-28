@@ -1,49 +1,46 @@
 from typing import List, Tuple
 import numpy as np
-import config as cfg
-anchors_per_zone = 2
-width = 3
+from config  import MIN_TARGET_DELTA, MAX_TARGET_DELTA , VALIDATE
+width = 5
 invalidval = 2**32-2
-def create_fingerprints(
-    points: np.ndarray,
-    song_id: int,
-) -> List[Tuple[int, int]]:
-    """
-    Создает массив отпечатков [address, hash] по схеме:
-    1 anchor + 3 точки + delta
+def create_fingerprints(points, song_id):
+    points = sorted(points, key=lambda p: (p[0], p[1]))
+    fingerprints = []
 
-    Args:
-        points: numpy массив [n_points, 2] с колонками [time, freq]
-        song_id: id песни
-    Returns:
-        list: List[address, hash]
-    """
-    n_points = points.shape[0]
-    fingerprints: List[Tuple[int, int]] = []
+    for anchor_idx, anchor in enumerate(points):
+        anchor_time, anchor_freq = anchor
 
-    for anchor_idx in range(n_points - width):
-        anchor_time = int(points[anchor_idx, 0])
-        freq_anchor = int(points[anchor_idx, 1])
+        targets = []
 
-        freqs = []
-        times = []
-        for i in range(1, width + 1):
-            idx = anchor_idx + i
-            times.append(int(points[idx, 0]))
-            freqs.append(int(points[idx, 1]))
+        for target_idx in range(anchor_idx + 1, len(points)):
+            target_time, target_freq = points[target_idx]
+            delta = target_time - anchor_time
 
-        delta = times[-1] - anchor_time
+            if delta < MIN_TARGET_DELTA:
+                continue
+
+            if delta > MAX_TARGET_DELTA:
+                break
+
+            targets.append((target_time, target_freq))
+
+            if len(targets) == 3:
+                break
+
+        if len(targets) < 3:
+            continue
+
+        delta = targets[-1][0] - anchor_time
 
         address = encode_address(
-            freq_anchor=freq_anchor,
-            freq1=freqs[0],
-            freq2=freqs[1],
-            freq3=freqs[2],
-            delta=delta
+            freq_anchor=anchor_freq,
+            freq1=targets[0][1],
+            freq2=targets[1][1],
+            freq3=targets[2][1],
+            delta=delta,
         )
 
         hash_value = encode_hash(anchor_time, song_id)
-
         fingerprints.append((address, hash_value))
 
     return fingerprints
@@ -55,7 +52,7 @@ def encode_address(
     freq2: int,
     freq3: int,
     delta: int,
-    validate: bool = cfg.VALIDATE
+    validate: bool = VALIDATE
 ) -> int:
     """
     Кодирует в 64-битное значение:
@@ -66,6 +63,11 @@ def encode_address(
     - delta (28 бит)
     Всего: 64 бита
     """
+    freq_anchor = int(freq_anchor)
+    freq1 = int(freq1)
+    freq2 = int(freq2)
+    freq3 = int(freq3)
+    delta = int(delta)
     address = 0
 
     if validate:
@@ -84,8 +86,9 @@ def encode_address(
     return address
 
 
-def decode_address(fingerprint: int, validate: bool = cfg.VALIDATE):
+def decode_address(fingerprint: int, validate: bool = VALIDATE):
     """Декодирует 64-битный address обратно в компоненты"""
+    fingerprint = int(fingerprint)
     freq_anchor = (fingerprint >> 55) & 0x1FF
     freq1 = (fingerprint >> 46) & 0x1FF
     freq2 = (fingerprint >> 37) & 0x1FF
@@ -100,7 +103,7 @@ def decode_address(fingerprint: int, validate: bool = cfg.VALIDATE):
         assert delta < 2**28
 
     return freq_anchor, freq1, freq2, freq3, delta
-def encode_hash(anchor_time: int, song_id: int, validate: bool = cfg.VALIDATE) -> int:
+def encode_hash(anchor_time: int, song_id: int, validate: bool = VALIDATE) -> int:
     """
     Кодирует anchor_time и song_id в 64-битный hash
     
@@ -108,6 +111,8 @@ def encode_hash(anchor_time: int, song_id: int, validate: bool = cfg.VALIDATE) -
     - anchor_time: 32 бита (биты 32-63)
     - song_id:     32 бита (биты 0-31)
     """
+    anchor_time = int(anchor_time)
+    song_id = int(song_id)
     if validate:
         assert 0 <= anchor_time < 2**32, f"anchor_time={anchor_time} вне диапазона 0-4294967295"
         assert 0 <= song_id < 2**32, f"song_id={song_id} вне диапазона 0-4294967295"
@@ -118,11 +123,10 @@ def encode_hash(anchor_time: int, song_id: int, validate: bool = cfg.VALIDATE) -
     
     return hash_value
 
-def decode_hash(hash_value:int, validate:bool=cfg.VALIDATE) -> Tuple[int, int]:
+def decode_hash(hash_value:int, validate:bool=VALIDATE) -> Tuple[int, int]:
         """Декодирует 64-битный hash в anchor_time и song_id"""
+        hash_value = int(hash_value)
         anchor_time = (hash_value >> 32) & 0xFFFFFFFF
         song_id = hash_value & 0xFFFFFFFF
         
         return anchor_time, song_id  
-
-

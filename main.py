@@ -1,4 +1,4 @@
-from dotenv import load_dotenv
+import logging
 
 from src.cli.parser import build_parser
 from src.cli.commands import CommandHandler
@@ -6,10 +6,12 @@ from src.recognition.service import MusicRecognitionService
 
 
 def main() -> None:
-    load_dotenv()
-
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
     parser = build_parser()
+
+
     service = MusicRecognitionService()
+
     handler = CommandHandler(service)
 
     try:
