@@ -15,6 +15,11 @@ from .indexing import compute_payload
 from .query_pipeline import QueryPipeline
 from .search_trace import SearchTrace
 
+try:
+    from src.neural.validator import NeuralValidator
+except Exception:
+    NeuralValidator = None
+
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +35,11 @@ class MusicRecognitionService:
     ) -> None:
         self.db = DB.MusicDatabase(db_path, fp_db_name, songs_db_name)
         self.query_pipeline = QueryPipeline(self.db)
+        self.neural_validator = (
+            NeuralValidator(self.db)
+            if NeuralValidator is not None and cfg.NEURAL_SHADOW_ENABLED
+            else None
+        )
         self.metadata = self._load_metadata()
         self.last_search_trace: SearchTrace | None = None
         try:
@@ -124,8 +134,30 @@ class MusicRecognitionService:
                 file_path=file_path,
             )
 
+        self._run_neural_shadow_validation(audio, result.trace)
         self.last_search_trace = result.trace
         return result.song_id, result.time_offset
+
+    def _run_neural_shadow_validation(self, audio, trace: SearchTrace) -> None:
+        validator = getattr(self, "neural_validator", None)
+        if validator is None:
+            trace.neural_enabled = False
+            return
+
+        trace.neural_enabled = True
+        try:
+            validation = validator.evaluate_top_candidates(audio, trace.top_candidates)
+        except Exception as error:
+            trace.neural_checked = True
+            trace.neural_reason = "shadow_wide"
+            trace.neural_results = []
+            trace.neural_error = str(error)
+            return
+
+        trace.neural_checked = validation.checked
+        trace.neural_reason = validation.reason
+        trace.neural_results = validation.results
+        trace.neural_error = validation.error
 
     def _is_weak_search_result(self, result) -> bool:
         if result.song_id == -1:
@@ -158,7 +190,9 @@ class MusicRecognitionService:
             attempts.append(self._offset_attempt_record(sample_offset, candidate))
 
             if self._is_better_search_result(candidate, best_result):
-                candidate.time_offset -= sample_offset / cfg.SAMPLE_RATE
+                offset_seconds = sample_offset / cfg.SAMPLE_RATE
+                candidate.time_offset -= offset_seconds
+                self._adjust_trace_candidate_offsets(candidate.trace, offset_seconds)
                 candidate.trace.offset_fallback_selected = True
                 best_result = candidate
 
@@ -189,6 +223,10 @@ class MusicRecognitionService:
             "score": getattr(result.trace, "selected_score", 0.0),
             "max_count": getattr(result.trace, "selected_max_count", 0),
         }
+
+    def _adjust_trace_candidate_offsets(self, trace: SearchTrace, offset_seconds: float) -> None:
+        for candidate in trace.top_candidates:
+            candidate.time_offset_seconds -= offset_seconds
 
     def search_song_from_file(
         self,
