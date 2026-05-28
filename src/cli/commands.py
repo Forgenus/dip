@@ -1,8 +1,10 @@
 import argparse
 import shlex
 import time
+from pathlib import Path
 
 import config as cfg
+from src.neural.splits import collect_song_items, save_song_split, split_song_items
 from src.testing.effect_snippet_exporter import EffectSnippetExporter
 from src.testing.test_runner import TestRunner
 
@@ -21,6 +23,7 @@ class CommandHandler:
             "print-songs": self.print_songs,
             "test": self.test,
             "debug-effects": self.debug_effects,
+            "neural-split": self.neural_split,
         }
 
     def handle(self, command: str, parser: argparse.ArgumentParser) -> None:
@@ -49,6 +52,46 @@ class CommandHandler:
 
     def debug_effects(self, args) -> None:
         EffectSnippetExporter(self.service).run(args)
+
+    def neural_split(self, args) -> None:
+        output_path = Path(args.output)
+        if output_path.exists() and not args.force:
+            print(f"Split file already exists: {output_path}")
+            print("Use --force to overwrite it.")
+            return
+
+        try:
+            items = collect_song_items(self.service)
+        except (TypeError, ValueError) as error:
+            print(f"Cannot create neural split: {error}")
+            return
+
+        if not items:
+            print("Cannot create neural split: song database is empty.")
+            return
+
+        try:
+            split = split_song_items(
+                items,
+                seed=args.seed,
+                train_ratio=args.train_ratio,
+                validation_ratio=args.validation_ratio,
+                test_ratio=args.test_ratio,
+            )
+            save_song_split(split, output_path)
+        except ValueError as error:
+            print(f"Cannot create neural split: {error}")
+            return
+
+        counts = split.counts
+        print(f"Neural split saved: {output_path}")
+        print(
+            "Counts: "
+            f"train={counts['train']}, "
+            f"validation_heldout={counts['validation_heldout']}, "
+            f"test_heldout={counts['test_heldout']}, "
+            f"total={counts['total']}"
+        )
 
     def process(self, args) -> None:
         start = time.perf_counter()

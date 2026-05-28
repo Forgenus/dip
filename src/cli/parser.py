@@ -238,6 +238,47 @@ def build_parser() -> argparse.ArgumentParser:
         help="Librosa time-stretch rate for the exported time_stretch variant.",
     )
 
+    parser_neural_split = subparsers.add_parser(
+        "neural-split",
+        help="Create a song-level train/validation/test split for neural training.",
+        description="Creates a deterministic song-level split JSON for neural model training.",
+    )
+    parser_neural_split.add_argument(
+        "--output",
+        type=Path,
+        default=cfg.NEURAL_SPLIT_PATH,
+        help=f"Output split JSON path. Default: {cfg.NEURAL_SPLIT_PATH}",
+    )
+    parser_neural_split.add_argument(
+        "--seed",
+        type=int,
+        default=cfg.RNG_SEED,
+        help=f"Random seed for deterministic splitting. Default: {cfg.RNG_SEED}",
+    )
+    parser_neural_split.add_argument(
+        "--train-ratio",
+        type=float,
+        default=cfg.NEURAL_SPLIT_TRAIN_RATIO,
+        help=f"Train split ratio. Default: {cfg.NEURAL_SPLIT_TRAIN_RATIO}",
+    )
+    parser_neural_split.add_argument(
+        "--validation-ratio",
+        type=float,
+        default=cfg.NEURAL_SPLIT_VALIDATION_RATIO,
+        help=f"Validation heldout split ratio. Default: {cfg.NEURAL_SPLIT_VALIDATION_RATIO}",
+    )
+    parser_neural_split.add_argument(
+        "--test-ratio",
+        type=float,
+        default=cfg.NEURAL_SPLIT_TEST_RATIO,
+        help=f"Test heldout split ratio. Default: {cfg.NEURAL_SPLIT_TEST_RATIO}",
+    )
+    parser_neural_split.add_argument(
+        "--force",
+        action="store_true",
+        help="Overwrite an existing split file.",
+    )
+
     subparsers.add_parser(
         "print",
         help="Вывести статистику базы",
