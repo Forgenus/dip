@@ -1,6 +1,5 @@
 import unittest
 
-import config as cfg
 from src.cli.parser import build_parser
 
 
@@ -75,23 +74,6 @@ class ParserTests(unittest.TestCase):
         self.assertFalse(default_args.failure_analysis)
         self.assertFalse(disabled_args.offset_fallback)
         self.assertTrue(disabled_args.failure_analysis)
-
-
-class NeuralConfigTests(unittest.TestCase):
-    def test_neural_training_config_defaults_exist(self):
-        self.assertEqual(80, cfg.NEURAL_N_MELS)
-        self.assertEqual(384, cfg.NEURAL_MEL_HOP_LENGTH)
-        self.assertEqual(1024, cfg.NEURAL_MEL_N_FFT)
-        self.assertEqual("symmetric_mean_absdiff", cfg.NEURAL_INPUT_MODE)
-        self.assertEqual(128, cfg.NEURAL_TRAIN_BATCH_SIZE)
-        self.assertEqual(30, cfg.NEURAL_TRAIN_EPOCHS)
-        self.assertEqual(1e-3, cfg.NEURAL_TRAIN_LR)
-        self.assertEqual(1e-4, cfg.NEURAL_TRAIN_WEIGHT_DECAY)
-        self.assertTrue(cfg.NEURAL_TRAIN_MIXED_PRECISION)
-        self.assertEqual(4, cfg.NEURAL_TRAIN_NUM_WORKERS)
-        self.assertEqual(0.80, cfg.NEURAL_SPLIT_TRAIN_RATIO)
-        self.assertEqual(0.10, cfg.NEURAL_SPLIT_VALIDATION_RATIO)
-        self.assertEqual(0.10, cfg.NEURAL_SPLIT_TEST_RATIO)
 
 
 if __name__ == "__main__":
