@@ -184,3 +184,45 @@ def load_checkpoint(
     best_metric = checkpoint.get("best_metric", None)
 
     return epoch, best_metric
+
+
+def run_training(args: Any) -> None:
+    """CLI entrypoint for neural model training.
+
+    Args:
+        args: Parsed command-line arguments with attributes:
+            - split: Path to neural split JSON
+            - epochs: Number of training epochs
+            - batch_size: Training batch size
+            - device: Device choice (auto, cpu, cuda)
+    """
+    from pathlib import Path
+
+    split_path = Path(args.split)
+    if not split_path.exists():
+        print(f"Split file not found: {split_path}")
+        print("Run 'neural-split' command first to create a training split.")
+        return
+
+    # Resolve device
+    if args.device == "auto":
+        device_str = "cuda" if torch.cuda.is_available() else "cpu"
+    else:
+        device_str = args.device
+
+    device = torch.device(device_str)
+
+    # Create training config
+    config = TrainingConfig(
+        batch_size=args.batch_size,
+        epochs=args.epochs,
+    )
+
+    print("Neural training configuration:")
+    print(f"  Split file: {split_path}")
+    print(f"  Epochs: {config.epochs}")
+    print(f"  Batch size: {config.batch_size}")
+    print(f"  Device: {device}")
+    print(f"  Mixed precision: {config.mixed_precision and device.type == 'cuda'}")
+    print()
+    print("Training skeleton ready: real-audio DataLoader can be expanded in a follow-up.")

@@ -24,6 +24,7 @@ class CommandHandler:
             "test": self.test,
             "debug-effects": self.debug_effects,
             "neural-split": self.neural_split,
+                    "neural-train": self.neural_train,
         }
 
     def handle(self, command: str, parser: argparse.ArgumentParser) -> None:
@@ -92,6 +93,11 @@ class CommandHandler:
             f"test_heldout={counts['test_heldout']}, "
             f"total={counts['total']}"
         )
+
+    def neural_train(self, args) -> None:
+        """Train the neural pair classifier model (skeleton)."""
+        from src.neural.training import run_training
+        run_training(args)
 
     def process(self, args) -> None:
         start = time.perf_counter()

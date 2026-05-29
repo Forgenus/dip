@@ -279,6 +279,36 @@ def build_parser() -> argparse.ArgumentParser:
         help="Overwrite an existing split file.",
     )
 
+    parser_neural_train = subparsers.add_parser(
+        "neural-train",
+        help="Train neural pair classifier model",
+        description="Train the neural pair classifier using a song split.",
+    )
+    parser_neural_train.add_argument(
+        "--split",
+        type=Path,
+        default=cfg.NEURAL_SPLIT_PATH,
+        help=f"Path to neural split JSON. Default: {cfg.NEURAL_SPLIT_PATH}",
+    )
+    parser_neural_train.add_argument(
+        "--epochs",
+        type=int,
+        default=cfg.NEURAL_TRAIN_EPOCHS,
+        help=f"Number of training epochs. Default: {cfg.NEURAL_TRAIN_EPOCHS}",
+    )
+    parser_neural_train.add_argument(
+        "--batch-size",
+        type=int,
+        default=cfg.NEURAL_TRAIN_BATCH_SIZE,
+        help=f"Training batch size. Default: {cfg.NEURAL_TRAIN_BATCH_SIZE}",
+    )
+    parser_neural_train.add_argument(
+        "--device",
+        choices=["auto", "cpu", "cuda"],
+        default="auto",
+        help="Device for training: auto (CUDA if available), cpu, or cuda. Default: auto",
+    )
+
     subparsers.add_parser(
         "print",
         help="Вывести статистику базы",
