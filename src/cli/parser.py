@@ -29,6 +29,15 @@ def build_parser() -> argparse.ArgumentParser:
         default=cfg.SONGS_DIR,
         help=f"Папка с аудиофайлами для добавления в базу. По умолчанию: {cfg.SONGS_DIR}",
     )
+    parser_process.add_argument(
+        "--max-workers",
+        type=int,
+        default=None,
+        help=(
+            "Максимальное количество worker-процессов для индексации при обработке. "
+            "Если не указано, используется значение по умолчанию."
+        ),
+    )
 
     parser_add = subparsers.add_parser(
         "add",
@@ -80,6 +89,15 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "Максимальное количество файлов для добавления после очистки базы. "
             "0 означает без ограничения."
+        ),
+    )
+    parser_recreate.add_argument(
+        "--max-workers",
+        type=int,
+        default=None,
+        help=(
+            "Максимальное количество worker-процессов для индексации. "
+            "Если не указано, используется значение по умолчанию."
         ),
     )
 
@@ -193,6 +211,19 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Print detailed failed-snippet analysis for failed recognition tests.",
     )
+    parser_test.add_argument(
+        "--neural-shadow",
+        dest="neural_shadow",
+        action="store_true",
+        default=True,
+        help="Run neural validator in shadow mode and print its test impact summary.",
+    )
+    parser_test.add_argument(
+        "--no-neural-shadow",
+        dest="neural_shadow",
+        action="store_false",
+        help="Disable neural shadow validation for this test run.",
+    )
 
     parser_debug_effects = subparsers.add_parser(
         "debug-effects",
@@ -281,20 +312,20 @@ def build_parser() -> argparse.ArgumentParser:
 
     parser_neural_train = subparsers.add_parser(
         "neural-train",
-        help="Train neural pair classifier model",
-        description="Train the neural pair classifier using a song split.",
+        help="Train the neural pair classifier model.",
+        description="Validates neural training configuration and starts the training entrypoint.",
     )
     parser_neural_train.add_argument(
         "--split",
         type=Path,
         default=cfg.NEURAL_SPLIT_PATH,
-        help=f"Path to neural split JSON. Default: {cfg.NEURAL_SPLIT_PATH}",
+        help=f"Path to the song split JSON. Default: {cfg.NEURAL_SPLIT_PATH}",
     )
     parser_neural_train.add_argument(
         "--epochs",
         type=int,
         default=cfg.NEURAL_TRAIN_EPOCHS,
-        help=f"Number of training epochs. Default: {cfg.NEURAL_TRAIN_EPOCHS}",
+        help=f"Training epoch count. Default: {cfg.NEURAL_TRAIN_EPOCHS}",
     )
     parser_neural_train.add_argument(
         "--batch-size",
@@ -303,10 +334,33 @@ def build_parser() -> argparse.ArgumentParser:
         help=f"Training batch size. Default: {cfg.NEURAL_TRAIN_BATCH_SIZE}",
     )
     parser_neural_train.add_argument(
+        "--examples-per-epoch",
+        type=int,
+        default=cfg.NEURAL_TRAIN_EXAMPLES_PER_EPOCH,
+        help=f"Training examples sampled per epoch. Default: {cfg.NEURAL_TRAIN_EXAMPLES_PER_EPOCH}",
+    )
+    parser_neural_train.add_argument(
+        "--validation-examples",
+        type=int,
+        default=cfg.NEURAL_VALIDATION_EXAMPLES,
+        help=f"Validation examples sampled per evaluation split. Default: {cfg.NEURAL_VALIDATION_EXAMPLES}",
+    )
+    parser_neural_train.add_argument(
+        "--num-workers",
+        type=int,
+        default=cfg.NEURAL_TRAIN_NUM_WORKERS,
+        help=f"DataLoader worker processes. Default: {cfg.NEURAL_TRAIN_NUM_WORKERS}",
+    )
+    parser_neural_train.add_argument(
         "--device",
         choices=["auto", "cpu", "cuda"],
         default="auto",
-        help="Device for training: auto (CUDA if available), cpu, or cuda. Default: auto",
+        help="Training device. Default: auto.",
+    )
+    parser_neural_train.add_argument(
+        "--fresh",
+        action="store_true",
+        help="Start neural training from a new model even if an existing checkpoint is present.",
     )
 
     subparsers.add_parser(

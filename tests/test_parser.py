@@ -75,6 +75,56 @@ class ParserTests(unittest.TestCase):
         self.assertFalse(disabled_args.offset_fallback)
         self.assertTrue(disabled_args.failure_analysis)
 
+    def test_test_command_enables_neural_shadow_by_default(self):
+        parser = build_parser()
+
+        default_args = parser.parse_args(["test"])
+        disabled_args = parser.parse_args(["test", "--no-neural-shadow"])
+
+        self.assertTrue(default_args.neural_shadow)
+        self.assertFalse(disabled_args.neural_shadow)
+
+    def test_neural_train_command_accepts_training_flags(self):
+        parser = build_parser()
+
+        args = parser.parse_args(
+            [
+                "neural-train",
+                "--split",
+                "data/neural/custom_split.json",
+                "--epochs",
+                "2",
+                "--batch-size",
+                "8",
+                "--device",
+                "cpu",
+                "--examples-per-epoch",
+                "16",
+                "--validation-examples",
+                "6",
+                "--num-workers",
+                "0",
+                "--fresh",
+            ]
+        )
+
+        self.assertEqual("neural-train", args.action)
+        self.assertEqual("data\\neural\\custom_split.json", str(args.split))
+        self.assertEqual(2, args.epochs)
+        self.assertEqual(8, args.batch_size)
+        self.assertEqual("cpu", args.device)
+        self.assertEqual(16, args.examples_per_epoch)
+        self.assertEqual(6, args.validation_examples)
+        self.assertEqual(0, args.num_workers)
+        self.assertTrue(args.fresh)
+
+    def test_neural_train_reuses_checkpoint_by_default(self):
+        parser = build_parser()
+
+        args = parser.parse_args(["neural-train"])
+
+        self.assertFalse(args.fresh)
+
 
 if __name__ == "__main__":
     unittest.main()

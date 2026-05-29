@@ -5,6 +5,7 @@ from pathlib import Path
 
 import config as cfg
 from src.neural.splits import collect_song_items, save_song_split, split_song_items
+from src.testing.reporting import format_neural_shadow
 from src.testing.effect_snippet_exporter import EffectSnippetExporter
 from src.testing.test_runner import TestRunner
 
@@ -24,7 +25,7 @@ class CommandHandler:
             "test": self.test,
             "debug-effects": self.debug_effects,
             "neural-split": self.neural_split,
-                    "neural-train": self.neural_train,
+            "neural-train": self.neural_train,
         }
 
     def handle(self, command: str, parser: argparse.ArgumentParser) -> None:
@@ -49,6 +50,8 @@ class CommandHandler:
         action(args)
 
     def test(self, args) -> None:
+        if getattr(args, "neural_shadow", False):
+            self.service.enable_neural_shadow()
         TestRunner(self.service).run(args)
 
     def debug_effects(self, args) -> None:
@@ -95,14 +98,17 @@ class CommandHandler:
         )
 
     def neural_train(self, args) -> None:
-        """Train the neural pair classifier model (skeleton)."""
         from src.neural.training import run_training
+
         run_training(args)
 
     def process(self, args) -> None:
         start = time.perf_counter()
         src = args.src or cfg.SONGS_DIR
-        added = self.service.add_songs_from_folder(src)
+        added = self.service.add_songs_from_folder(
+            src,
+            max_workers=getattr(args, "max_workers", None),
+        )
         elapsed = time.perf_counter() - start
 
         print(f"Finished processing folder {src}, added {added} songs")
@@ -124,6 +130,9 @@ class CommandHandler:
         print(f"Found match: {match_id}")
         self._print_song_info(match_id)
         print(f"time offset = {time_offset}")
+        neural_shadow = format_neural_shadow(self.service.last_search_trace)
+        if neural_shadow:
+            print(neural_shadow)
 
     def debug_search(self, args) -> None:
         self.service.debug_search()
@@ -133,7 +142,11 @@ class CommandHandler:
 
     def recreate(self, args) -> None:
         self.service.clear_all()
-        self.service.add_songs_from_folder(cfg.SONGS_DIR, max_amount=args.max)
+        self.service.add_songs_from_folder(
+            cfg.SONGS_DIR,
+            max_amount=args.max,
+            max_workers=args.max_workers,
+        )
 
     def print_stats(self, args) -> None:
         self.service.print_stats()

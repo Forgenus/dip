@@ -26,7 +26,7 @@ def count_unique_addresses_by_song(
 
 def filter(
     found_fp_list: List[Tuple[int, int]],
-    min_matches_per_song=2,
+    min_matches_per_song=5,
 ) -> Dict[int, Dict[int, List[int]]]:
     """Group raw DB matches by song and address."""
     if min_matches_per_song == -1:

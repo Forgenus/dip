@@ -26,7 +26,7 @@ class NeuralValidator:
         self,
         db,
         model=None,
-        enabled: bool = cfg.NEURAL_SHADOW_ENABLED,
+        enabled: bool | None = None,
         threshold: float = cfg.NEURAL_DECISION_THRESHOLD,
         top_n: int = cfg.NEURAL_SHADOW_TOP_N,
         sample_rate: int = cfg.SAMPLE_RATE,
@@ -39,7 +39,7 @@ class NeuralValidator:
     ) -> None:
         self.db = db
         self.model = model
-        self.enabled = enabled
+        self.enabled = cfg.NEURAL_SHADOW_ENABLED if enabled is None else enabled
         self.threshold = threshold
         self.top_n = top_n
         self.sample_rate = sample_rate
@@ -134,7 +134,12 @@ class NeuralValidator:
             return self.model
 
         model = PairClassifier(input_channels=2)
-        state = torch.load(self.model_path, map_location="cpu")
+        state = torch.load(self.model_path, map_location="cpu", weights_only=False)
+        if isinstance(state, dict):
+            if "model_state" in state:
+                state = state["model_state"]
+            elif "model_state_dict" in state:
+                state = state["model_state_dict"]
         model.load_state_dict(state)
         model.eval()
         self.model = model

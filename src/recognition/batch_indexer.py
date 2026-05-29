@@ -25,12 +25,21 @@ class BatchIndexer:
         self.db = db
         self.metadata = metadata
 
-    def add_songs_from_folder(self, folder_path: Path, files: list[Path], max_amount: int = 0) -> int:
+    def add_songs_from_folder(
+        self,
+        folder_path: Path,
+        files: list[Path],
+        max_amount: int = 0,
+        max_workers: int | None = None,
+    ) -> int:
         if max_amount and max_amount > 0:
             files = files[:max_amount]
         logger.info("[main] scan folder done: files=%s max_amount=%s", len(files), max_amount)
 
-        max_workers = 12
+        if max_workers is None:
+            max_workers = 12
+        elif max_workers <= 0:
+            raise ValueError("max_workers must be a positive integer")
         max_pending = max_workers
         wait_log_seconds = getattr(cfg, "PROCESS_WAIT_LOG_SECONDS", 5)
         stall_timeout_seconds = getattr(cfg, "PROCESS_STALL_TIMEOUT_SECONDS", 60)
@@ -163,7 +172,6 @@ class BatchIndexer:
                 duration=metadata.get("duration", "0.0"),
                 save_after=False,
             )
-            logger.info("Added %s", payload.file_path)
             return True
         except TypeError:
             logger.exception(

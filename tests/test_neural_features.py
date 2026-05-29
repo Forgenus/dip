@@ -1,72 +1,60 @@
 import unittest
 
-import numpy as np
+import torch
 
-from src.neural.features import build_pair_features, log_mel
+from src.neural.features import TorchMelPairFeatureExtractor, build_symmetric_pair_features
 
 
 class NeuralFeatureTests(unittest.TestCase):
-    def _build_features(self, query, candidate):
-        return build_pair_features(
-            query,
-            candidate,
+    def test_build_symmetric_pair_features_returns_mean_and_abs_difference_channels(self):
+        left = torch.ones((2, 4, 6), dtype=torch.float32)
+        right = torch.full((2, 4, 6), 3.0, dtype=torch.float32)
+
+        features = build_symmetric_pair_features(left, right)
+
+        self.assertEqual((2, 2, 4, 6), tuple(features.shape))
+        torch.testing.assert_close(torch.full((2, 4, 6), 2.0), features[:, 0])
+        torch.testing.assert_close(torch.full((2, 4, 6), 2.0), features[:, 1])
+
+    def test_build_symmetric_pair_features_is_swap_invariant(self):
+        left = torch.randn((2, 8, 10), dtype=torch.float32)
+        right = torch.randn((2, 8, 12), dtype=torch.float32)
+
+        left_right = build_symmetric_pair_features(left, right)
+        right_left = build_symmetric_pair_features(right, left)
+
+        torch.testing.assert_close(left_right, right_left)
+
+    def test_extractor_returns_finite_two_channel_features(self):
+        extractor = TorchMelPairFeatureExtractor(
             sample_rate=11025,
-            n_mels=32,
-            n_fft=512,
-            hop_length=256,
+            n_mels=16,
+            n_fft=256,
+            hop_length=128,
         )
+        left = torch.sin(torch.linspace(0, 1, 11025, dtype=torch.float32))
+        right = torch.cos(torch.linspace(0, 1, 11025, dtype=torch.float32))
 
-    def test_build_pair_features_returns_three_matching_channels(self):
-        query = np.sin(np.linspace(0, 1, 11025, dtype=np.float32))
-        candidate = np.cos(np.linspace(0, 1, 11025, dtype=np.float32))
+        features = extractor(left, right)
 
-        features = self._build_features(query, candidate)
+        self.assertEqual(1, features.shape[0])
+        self.assertEqual(2, features.shape[1])
+        self.assertEqual(16, features.shape[2])
+        self.assertTrue(torch.isfinite(features).all())
 
-        self.assertEqual(3, features.shape[0])
-        self.assertEqual(32, features.shape[1])
-        self.assertEqual(features.shape[1:], features[2].shape)
-        np.testing.assert_allclose(features[2], np.abs(features[0] - features[1]), rtol=1e-5)
-
-    def test_silence_returns_finite_float32_features(self):
-        audio = np.zeros(11025, dtype=np.float32)
-
-        features = self._build_features(audio, audio)
-
-        self.assertEqual(np.float32, features.dtype)
-        self.assertTrue(np.all(np.isfinite(features)))
-
-    def test_log_mel_uses_scalar_per_window_normalization(self):
-        audio = np.sin(np.linspace(0, 20, 11025, dtype=np.float32))
-
-        features = log_mel(
-            audio,
+    def test_non_finite_input_raises_value_error(self):
+        extractor = TorchMelPairFeatureExtractor(
             sample_rate=11025,
-            n_mels=32,
-            n_fft=512,
-            hop_length=256,
+            n_mels=16,
+            n_fft=256,
+            hop_length=128,
         )
+        left = torch.zeros(11025, dtype=torch.float32)
+        right = torch.zeros(11025, dtype=torch.float32)
+        left[0] = float("nan")
 
-        self.assertLess(abs(float(features.mean())), 1e-5)
-        self.assertGreater(float(features.std()), 0.99)
-        self.assertLess(float(features.std()), 1.01)
-        self.assertFalse(np.allclose(features.mean(axis=0), 0.0, atol=1e-5))
-
-    def test_mismatched_audio_lengths_are_cropped_to_common_frame_count(self):
-        query = np.sin(np.linspace(0, 1, 11025, dtype=np.float32))
-        candidate = np.cos(np.linspace(0, 1, 11281, dtype=np.float32))
-
-        features = self._build_features(query, candidate)
-
-        self.assertEqual((3, 32, 44), features.shape)
-        np.testing.assert_allclose(features[2], np.abs(features[0] - features[1]), rtol=1e-5)
-
-    def test_non_finite_input_raises_exception(self):
-        query = np.zeros(11025, dtype=np.float32)
-        candidate = np.zeros(11025, dtype=np.float32)
-        query[0] = np.nan
-
-        with self.assertRaises(Exception):
-            self._build_features(query, candidate)
+        with self.assertRaises(ValueError):
+            extractor(left, right)
 
 
 if __name__ == "__main__":

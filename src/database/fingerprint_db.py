@@ -130,17 +130,6 @@ class FingerprintDB:
         logger.info("Total entries : %s", f"{self.stats['total_entries']:,}")
         logger.info("Unique addresses: %s", f"{self.stats['unique_addresses']:,}")
         logger.info("Max list size for one address: %s", self.stats["max_list_size"])
-        for address, hashes in self.db.items():
-            if len(hashes) > 1000:
-                freq1, freq2, freq_target, delta1, delta2 = decode_address(address)
-                logger.info(
-                    "freq1=%s freq2=%s target=%s delta1=%s delta2=%s",
-                    freq1,
-                    freq2,
-                    freq_target,
-                    delta1,
-                    delta2,
-                )
         if self.stats["unique_addresses"] > 0:
             avg = self.stats["total_entries"] / self.stats["unique_addresses"]
             logger.info("Avg list length: %.2f", avg)

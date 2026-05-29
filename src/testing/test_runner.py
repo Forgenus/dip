@@ -11,6 +11,8 @@ from src.testing.failure_analysis import analyze_failed_snippet_against_file
 from src.testing.reporting import (
     FailedSnippetRecord,
     format_search_trace,
+    neural_result_for_song,
+    neural_validated_found_id,
 )
 from src.testing.snippet_effects import SnippetEffects, apply_snippet_effects
 from src.testing.snippets import (
@@ -39,6 +41,7 @@ class TestRunner:
         total_time = 0.0
         offset_seconds_list: list[float] = []
         failed_records: list[FailedSnippetRecord] = []
+        neural_stats = NeuralShadowStats()
         failed_snippets_dir = getattr(args, "failed_snippets_dir", cfg.FAILED_SNIPPETS_DIR)
         test_snippets_dir = getattr(args, "test_snippets_dir", cfg.TEST_SNIPPETS_DIR)
         snippet_effects = self._snippet_effects_from_args(args)
@@ -83,6 +86,13 @@ class TestRunner:
             expected = song['title']
             result = found['title'] if found else 'none'
             match = found_id == song['song_id']
+            trace = self.service.last_search_trace
+            neural_stats.record(
+                expected_id=song["song_id"],
+                found_id=found_id,
+                baseline_match=match,
+                trace=trace,
+            )
             hop_mod = snippet.start_sample % cfg.HOP_LENGTH
             # Время смещения в секундах
             offset_seconds = hop_mod / cfg.SAMPLE_RATE
@@ -112,8 +122,6 @@ class TestRunner:
                 failed_records.append(record)
                 print(f"Saved failed snippet: {record.output_file}")
 
-                trace = self.service.last_search_trace
-
                 if trace is not None and getattr(args, "failure_analysis", False):
                     trace.failure_analysis = analyze_failed_snippet_against_file(
                         snippet_audio=snippet.audio,
@@ -128,6 +136,9 @@ class TestRunner:
         accuracy = (correct / count * 100) if count > 0 else 0.0
 
         print(f"\nAccuracy: {correct}/{count} ({accuracy:.1f}%)")
+        summary = neural_stats.format_summary(count)
+        if summary:
+            print(summary)
         print(f"Average query time: {avg_time:.4f} sec")
         
         if offset_seconds_list:
@@ -225,3 +236,90 @@ class TestRunner:
         output_file = Path(output_dir) / filename
         save_snippet_to_file(snippet, output_file)
         return output_file
+
+
+class NeuralShadowStats:
+    def __init__(self) -> None:
+        self.checked = 0
+        self.errors = 0
+        self.baseline_correct = 0
+        self.simulated_correct = 0
+        self.selected_same = 0
+        self.selected_rejected = 0
+        self.rejected_correct = 0
+        self.rejected_incorrect = 0
+        self.missing_selected_decision = 0
+
+    def record(self, expected_id: int, found_id: int, baseline_match: bool, trace) -> None:
+        if baseline_match:
+            self.baseline_correct += 1
+
+        if trace is None or not getattr(trace, "neural_checked", False):
+            if baseline_match:
+                self.simulated_correct += 1
+            return
+
+        self.checked += 1
+        if getattr(trace, "neural_error", None):
+            self.errors += 1
+            if baseline_match:
+                self.simulated_correct += 1
+            return
+
+        neural_found_id = neural_validated_found_id(found_id, trace)
+        if neural_found_id == expected_id:
+            self.simulated_correct += 1
+
+        selected_result = neural_result_for_song(trace, found_id) if found_id != -1 else None
+        if selected_result is None:
+            self.missing_selected_decision += 1
+            return
+
+        if selected_result.decision == "same":
+            self.selected_same += 1
+        else:
+            self.selected_rejected += 1
+            if baseline_match:
+                self.rejected_correct += 1
+            else:
+                self.rejected_incorrect += 1
+
+    def format_summary(self, total_count: int) -> str:
+        if self.checked == 0 and self.errors == 0:
+            return ""
+
+        baseline_accuracy = (
+            self.baseline_correct / total_count * 100
+            if total_count
+            else 0.0
+        )
+        simulated_accuracy = (
+            self.simulated_correct / total_count * 100
+            if total_count
+            else 0.0
+        )
+        delta = self.simulated_correct - self.baseline_correct
+
+        return "\n".join(
+            [
+                "Neural shadow summary:",
+                f"  checked={self.checked} errors={self.errors}",
+                (
+                    f"  baseline_accuracy={self.baseline_correct}/{total_count} "
+                    f"({baseline_accuracy:.1f}%)"
+                ),
+                (
+                    f"  simulated_validator_accuracy={self.simulated_correct}/{total_count} "
+                    f"({simulated_accuracy:.1f}%) delta_correct={delta:+d}"
+                ),
+                (
+                    f"  selected_same={self.selected_same} "
+                    f"selected_rejected={self.selected_rejected} "
+                    f"missing_selected_decision={self.missing_selected_decision}"
+                ),
+                (
+                    f"  rejected_correct={self.rejected_correct} "
+                    f"rejected_incorrect={self.rejected_incorrect}"
+                ),
+            ]
+        )

@@ -14,7 +14,6 @@ DEFAULT_BAND_EDGES = (
     (240, 512),
 )
 
-DEFAULT_LOG_BAND_COUNT = 32
 MAX_ENCODED_FREQ_BIN = 512
 
 
@@ -186,10 +185,10 @@ def filter_spectrogram_stable_peaks(
     data: np.ndarray,
     band_edges=DEFAULT_BAND_EDGES,
     time_radius: int = 1,
-    freq_radius: int = 2,
-    percentile: float = 89,
-    max_points_per_time: int = 30,
-    min_prominence: float = 0.02,
+    freq_radius: int = 4,
+    percentile: float = 87,
+    max_points_per_time: int = 7,
+    min_prominence: float = 0.03,
 ) -> np.ndarray:
     n_times, n_freq_bins = data.shape
 

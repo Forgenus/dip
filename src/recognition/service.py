@@ -54,6 +54,24 @@ class MusicRecognitionService:
         except FileNotFoundError:
             logger.info("No existing database found, starting fresh")
 
+    def enable_neural_shadow(self) -> bool:
+        """Enable neural shadow validation for the current process."""
+        cfg.NEURAL_SHADOW_ENABLED = True
+        if self.neural_validator is not None:
+            return True
+
+        if NeuralValidator is None:
+            self.neural_validator_error = str(NEURAL_VALIDATOR_IMPORT_ERROR)
+            return False
+
+        try:
+            self.neural_validator = NeuralValidator(self.db, enabled=True)
+            self.neural_validator_error = None
+            return True
+        except Exception as error:
+            self.neural_validator_error = str(error)
+            return False
+
     def _load_metadata(self) -> dict:
         if not cfg.METADATA_JSON_PATH.exists():
             return {}
@@ -69,13 +87,19 @@ class MusicRecognitionService:
         audio_exts = {".mp3", ".wav", ".flac", ".m4a", ".aac"}
         return [p for p in Path(folder_path).rglob("*") if p.suffix.lower() in audio_exts]
 
-    def add_songs_from_folder(self, folder_path: Path, max_amount: int = 0) -> int:
+    def add_songs_from_folder(
+        self,
+        folder_path: Path,
+        max_amount: int = 0,
+        max_workers: int | None = None,
+    ) -> int:
         logger.info("[main] scan folder start: %s", folder_path)
         files = self.get_audio_files(folder_path)
         return BatchIndexer(self.db, self.metadata).add_songs_from_folder(
             Path(folder_path),
             files,
             max_amount=max_amount,
+            max_workers=max_workers,
         )
 
     def add_song_from_file(self, file_path: Path, save_after: bool = True) -> bool:

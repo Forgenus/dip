@@ -153,6 +153,18 @@ class NeuralShadowServiceTests(unittest.TestCase):
         self.assertEqual([], service.last_search_trace.neural_results)
         self.assertEqual("torch import failed", service.last_search_trace.neural_error)
 
+    def test_runtime_enable_creates_enabled_validator(self):
+        service = MusicRecognitionService.__new__(MusicRecognitionService)
+        service.db = object()
+        service.neural_validator = None
+        service.neural_validator_error = None
+
+        with patch("src.recognition.service.NeuralValidator") as validator_class:
+            enabled = service.enable_neural_shadow()
+
+        self.assertTrue(enabled)
+        validator_class.assert_called_once_with(service.db, enabled=True)
+
     def test_validator_error_preserves_fingerprint_result_and_records_trace_error(self):
         service = self.make_service(RaisingValidator())
 

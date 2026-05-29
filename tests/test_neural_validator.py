@@ -1,9 +1,12 @@
 import unittest
 from pathlib import Path
+import tempfile
 from unittest.mock import patch
 
 import numpy as np
+import torch
 
+from src.neural.model import PairClassifier
 from src.neural.validator import NeuralValidator
 from src.recognition.search_trace import CandidateTrace
 
@@ -14,7 +17,7 @@ class FakeModel:
 
     def __call__(self, batch):
         import torch
-        return torch.tensor([0.8], dtype=torch.float32)
+        return torch.tensor([2.0], dtype=torch.float32)
 
 
 class LowProbabilityModel:
@@ -23,7 +26,7 @@ class LowProbabilityModel:
 
     def __call__(self, batch):
         import torch
-        return torch.tensor([0.2], dtype=torch.float32)
+        return torch.tensor([-2.0], dtype=torch.float32)
 
 
 class FakeDb:
@@ -78,7 +81,7 @@ class NeuralValidatorTests(unittest.TestCase):
         self.assertIsNone(result.error)
         self.assertEqual(1, len(result.results))
         self.assertEqual("same", result.results[0].decision)
-        self.assertEqual(0.8, result.results[0].same_probability)
+        self.assertAlmostEqual(0.880797, result.results[0].same_probability, places=6)
 
     def test_below_threshold_decision_is_not_same(self):
         validator = NeuralValidator(
@@ -110,6 +113,35 @@ class NeuralValidatorTests(unittest.TestCase):
         self.assertFalse(result.checked)
         self.assertEqual([], result.results)
         self.assertIsNone(result.error)
+
+    def test_load_model_accepts_training_checkpoint_wrapper(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            checkpoint_path = Path(temp_dir) / "model.pt"
+            model = PairClassifier(input_channels=2)
+            torch.save({"model_state": model.state_dict(), "epoch": 3}, checkpoint_path)
+            validator = NeuralValidator(db=FakeDb(), model_path=checkpoint_path)
+
+            loaded = validator._load_model()
+
+        self.assertIsInstance(loaded, PairClassifier)
+
+    def test_load_model_accepts_checkpoint_with_path_config(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            checkpoint_path = Path(temp_dir) / "model.pt"
+            model = PairClassifier(input_channels=2)
+            torch.save(
+                {
+                    "model_state": model.state_dict(),
+                    "epoch": 3,
+                    "config": {"split_path": Path("data/neural/splits/song_split.json")},
+                },
+                checkpoint_path,
+            )
+            validator = NeuralValidator(db=FakeDb(), model_path=checkpoint_path)
+
+            loaded = validator._load_model()
+
+        self.assertIsInstance(loaded, PairClassifier)
 
     def test_enabled_no_candidates_returns_unchecked_without_evaluating_model(self):
         validator = NeuralValidator(db=FakeDb(), model=EvalRaisesModel(), enabled=True)
